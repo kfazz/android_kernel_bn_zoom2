@@ -26,6 +26,8 @@
 #ifndef __ASM_ARCH_OMAP_CPU_H
 #define __ASM_ARCH_OMAP_CPU_H
 
+#include <linux/bitops.h>
+
 struct omap_chip_id {
 	u16 oc;
 	u8 type;
@@ -415,6 +417,33 @@ int omap_type(void);
 #define OMAP_3630	0x3630
 #define OMAP_3630_800	0x3630800
 #define OMAP_3630_1000	0x36301000
+
+/*
+ * Runtime detection of OMAP3 features
+ */
+extern u32 omap3_features;
+
+#define OMAP3_HAS_L2CACHE		BIT(0)
+#define OMAP3_HAS_IVA			BIT(1)
+#define OMAP3_HAS_SGX			BIT(2)
+#define OMAP3_HAS_NEON			BIT(3)
+#define OMAP3_HAS_ISP			BIT(4)
+#define OMAP3_HAS_192MHZ_CLK		BIT(5)
+#define OMAP3_HAS_ISP2P			BIT(6)
+
+#define OMAP3_HAS_FEATURE(feat,flag)			\
+static inline unsigned int omap3_has_ ##feat(void)	\
+{							\
+	return (omap3_features & OMAP3_HAS_ ##flag);	\
+}							\
+
+OMAP3_HAS_FEATURE(l2cache, L2CACHE)
+OMAP3_HAS_FEATURE(sgx, SGX)
+OMAP3_HAS_FEATURE(iva, IVA)
+OMAP3_HAS_FEATURE(neon, NEON)
+OMAP3_HAS_FEATURE(isp, ISP)
+OMAP3_HAS_FEATURE(isp2p, ISP2P)
+OMAP3_HAS_FEATURE(192mhz_clk, 192MHZ_CLK)
 
 void omap2_check_revision(void);
 
