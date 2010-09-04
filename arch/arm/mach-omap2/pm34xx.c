@@ -77,6 +77,8 @@ static int (*core_off_notification)(bool);
 #define ABB_FAST_OPP	1
 #define ABB_NOMINAL_OPP	2
 
+#define RTA_ERRATA_i608		(1 << 1)
+
 struct power_state {
 	struct powerdomain *pwrdm;
 	u32 next_state;
@@ -1720,6 +1722,17 @@ int __init omap3_pm_init(void)
 	 */
 	if (omap_rev() <= OMAP3430_REV_ES3_1_1)
 		pwrdm_add_wkdep(per_pwrdm, wkup_pwrdm);
+
+	if (cpu_is_omap3630())
+		pm34xx_errata |= RTA_ERRATA_i608;
+	/*
+	 * RTA is disabled during initialization as per errata i608
+	 * it is safer to disable rta by the bootloader, but we would like
+	 * to be doubly sure here and prevent any mishaps.
+	 */
+	if (IS_PM34XX_ERRATA(RTA_ERRATA_i608))
+		omap_ctrl_writel(OMAP36XX_RTA_DISABLE,
+				OMAP36XX_CONTROL_MEM_RTA_CTRL);
 
 	if (omap_type() != OMAP2_DEVICE_TYPE_GP) {
 		omap3_secure_ram_storage =
