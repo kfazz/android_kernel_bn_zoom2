@@ -216,6 +216,19 @@ config MACH_OMAP_3430SDP
 	default y
 	select OMAP_PACKAGE_CBB
 
+config MACH_OMAP3621_GOSSAMER
+	bool "OMAP3621 BOXER board revision GOSSAMER"
+	depends on ARCH_OMAP3 && SOC_OMAP3430
+	select OMAP_RAM_CONSOLE
+
+config MACH_OMAP3621_GOSSAMER_EVT1C
+	bool "OMAP3621 BOXER board revision EVT1C"
+	depends on MACH_OMAP3621_GOSSAMER
+	help
+	Select this options if you are using the
+	newer Gossamer version EVT1C
+
+
 config MACH_NOKIA_N800
        bool
 

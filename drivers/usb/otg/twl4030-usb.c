@@ -36,9 +36,16 @@
 #include <linux/usb/ulpi.h>
 #include <linux/i2c/twl.h>
 #include <linux/regulator/consumer.h>
+#include <linux/regulator/bq24073.h>
 #include <linux/err.h>
 #include <linux/notifier.h>
+
 #include <linux/slab.h>
+#include <linux/usb.h>
+#include <linux/usb/gadget.h>
+#include <linux/regulator/machine.h>
+#include <linux/wakelock.h>
+
 
 /* Register defines */
 
@@ -143,6 +150,20 @@
 #define PMBR1				0x0D
 #define GPIO_USB_4PIN_ULPI_2430C	(3 << 0)
 
+/* TPS65921 defines */
+#define TPS65921_USB_DTCT_CTRL		0x02
+#define TPS65921_USB_CHG_DET_EN_SW	(1 << 7)
+#define TPS65921_USB_DET_STS_MASK	(3 << 2)
+#define TPS65921_USB_DET_STS_100MA	(1 << 2)
+#define TPS65921_USB_DET_STS_500MA	(2 << 2)
+#define TPS65921_USB_HW_CHRG_DET_EN	(1 << 0)
+
+#define TPS65921_USB_SW_CHRG_CTRL	0x03
+#define TPS65921_CHGD_SERX_DM_LOWV	(1 << 5)
+#define TPS65921_CHGD_SERX_DP_LOWV	(1 << 4)
+
+#define IRQ_WAKE_LOCK_TIMEOUT       (5*HZ)
+
 struct twl4030_usb {
 	struct otg_transceiver	otg;
 	struct device		*dev;
@@ -163,7 +184,15 @@ struct twl4030_usb {
 	bool			vbus_supplied;
 	u8			asleep;
 	bool			irq_enabled;
+	struct delayed_work	dwork;
+	struct wake_lock irq_wake_lock;
 };
+
+/* delayed execution of the IRQ by seconds */
+static int bottom_timeout = 2;
+static struct regulator *bci_regulator;
+static void twl4030_usb_irq_work(struct work_struct *work);
+extern void bq27x10_charger_type(int type);
 
 /* internal define on top of container_of */
 #define xceiv_to_twl(x)		container_of((x), struct twl4030_usb, otg);
@@ -594,6 +623,140 @@ static int twl4030_set_host(struct otg_transceiver *x, struct usb_bus *host)
 	return 0;
 }
 
+#if defined(CONFIG_REGULATOR_BQ24073) || \
+    defined(CONFIG_REGULATOR_BQ24073_MODULE)	
+static int twl4030_usb_bq_charge_enable(struct twl4030_usb *twl)
+{
+    u8 chg_pres = 0;
+    int limit;
+    int retval = 0;
+	
+	/* FIXME: This is a slight hack, but as the charger detection module
+	 * is not wanting to set any interrupt flag, currently this
+	 * appears to be the only way to do it for now.
+	 * We don't care about delayed USB IRQs, as the VBUS and ID pin
+	 * debounce timers are large enough, and we will handle the IRQ
+	 * anyway after we return from the handler.
+	 */
+
+	msleep(850);
+	chg_pres = twl4030_readb(twl, TWL4030_MODULE_MAIN_CHARGE,
+					 TPS65921_USB_DTCT_CTRL);
+
+	/* if usb is connected to usb host
+	 * 500ma, otherwise 1500ma limit
+	 */
+	chg_pres &= TPS65921_USB_DET_STS_MASK;
+	if (chg_pres != TPS65921_USB_DET_STS_500MA) {
+		limit = 500000;
+		retval = 1;
+	}
+	else {
+		limit = 1500000;
+                wake_unlock(&twl->irq_wake_lock);
+		retval = 0;
+        }
+
+#if defined(CONFIG_BATTERY_BQ27510)
+	bq27x10_charger_type(limit);
+#endif
+	if (!regulator_is_enabled(bci_regulator)) {
+		regulator_enable(bci_regulator);
+    }
+
+	regulator_set_current_limit(bci_regulator, limit, limit);
+
+	dev_dbg(twl->dev, "Set USB Charger limit to %duA\n", limit);
+	return retval;
+}
+
+static void twl4030_usb_bq_charge_disable(struct twl4030_usb *twl)
+{
+    /* No VBUS or VBus from charge pump (ID pin low and,
+	 * and device conneted to OTG port)
+	 */
+	if (regulator_is_enabled(bci_regulator) > 0) {
+		/*
+		 * charger reports it is enabled but usb
+		 * is not connected. This probably means
+		 * we have a boot enabled BQ. Force the
+		 * enabled bit for proper charger control
+		 */
+
+		regulator_disable(bci_regulator);
+		dev_dbg(twl->dev, "Disable USB Charger\n");
+	}
+#if defined(CONFIG_BATTERY_BQ27510)
+	bq27x10_charger_type(0);
+#endif
+}
+#endif
+
+static void twl4030_usb_irq_work(struct work_struct *work)
+{
+    int status;
+	struct twl4030_usb *twl = container_of(work,
+					       struct twl4030_usb,
+					       dwork.work);
+	struct otg_transceiver x = twl->otg;
+
+	/* get link status */
+	status = twl4030_usb_linkstat(twl);
+
+	switch (status) {
+	//FIXME what about ID?
+	case USB_EVENT_VBUS:
+	case USB_EVENT_ID:
+ 		twl4030_phy_resume(twl);
+		break;
+	case USB_EVENT_NONE:
+		/* disable usb regulators and
+		 * remove restrictions on core
+		 */
+		twl4030_phy_suspend(twl, 0);
+		/* FALL THROUGH */
+	default:
+		/* nothing more to do */
+		break;
+
+    }
+
+#if defined(CONFIG_TWL4030_BCI_BATTERY)
+    twl4030charger_usb_en(status == USB_LINK_VBUS);
+#endif
+
+#if defined(CONFIG_REGULATOR_BQ24073) || \
+    defined(CONFIG_REGULATOR_BQ24073_MODULE)
+	twl_i2c_write_u8(TWL4030_MODULE_MAIN_CHARGE,
+				TPS65921_USB_HW_CHRG_DET_EN,
+				TPS65921_USB_DTCT_CTRL);
+
+	if (bci_regulator == NULL || IS_ERR(bci_regulator))
+		bci_regulator = regulator_get(twl->dev, "bq24073");
+
+	if (IS_ERR(bci_regulator))
+		return;
+
+	if (USB_EVENT_VBUS == status) {
+        	if (twl4030_usb_bq_charge_enable(twl) == 0) {
+			twl4030_phy_suspend(twl, 0);
+		}
+   	} else {
+        twl4030_usb_bq_charge_disable(twl);
+	}
+#endif /* CONFIG_REGULATOR_BQ24073 */
+
+	sysfs_notify(&twl->dev->kobj, NULL, "vbus");
+
+	if (unlikely(bottom_timeout != 0))
+		bottom_timeout = 0;
+
+    if (USB_EVENT_VBUS != status) {
+        // Last thing we do is unlock the wakelock if no link detected.
+        wake_unlock(&twl->irq_wake_lock);
+    }
+}
+
 static int __devinit twl4030_usb_probe(struct platform_device *pdev)
 {
 	struct twl4030_usb_data *pdata = pdev->dev.platform_data;
@@ -610,6 +773,8 @@ static int __devinit twl4030_usb_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	twl->dev		= &pdev->dev;
+	if (pdata->bci_supply)
+		pdata->bci_supply->dev	= twl->dev;
 	twl->irq		= platform_get_irq(pdev, 0);
 	twl->otg.dev		= twl->dev;
 	twl->otg.label		= "twl4030";
@@ -619,6 +784,9 @@ static int __devinit twl4030_usb_probe(struct platform_device *pdev)
 	twl->usb_mode		= pdata->usb_mode;
 	twl->vbus_supplied	= false;
 	twl->asleep = 1;
+
+	wake_lock_init(&twl->irq_wake_lock, WAKE_LOCK_SUSPEND, "twl4030-irq");
+	INIT_DELAYED_WORK(&twl->dwork, twl4030_usb_irq_work);
 
 	/* init spinlock for workqueue */
 	spin_lock_init(&twl->lock);
@@ -670,6 +838,7 @@ static int __exit twl4030_usb_remove(struct platform_device *pdev)
 	struct twl4030_usb *twl = platform_get_drvdata(pdev);
 	int val;
 
+	cancel_delayed_work_sync(&twl->dwork);
 	free_irq(twl->irq, twl);
 	device_remove_file(twl->dev, &dev_attr_vbus);
 
@@ -696,6 +865,7 @@ static int __exit twl4030_usb_remove(struct platform_device *pdev)
 	regulator_put(twl->usb1v8);
 	regulator_put(twl->usb3v1);
 
+	wake_lock_destroy(&twl->irq_wake_lock);
 	kfree(twl);
 
 	return 0;

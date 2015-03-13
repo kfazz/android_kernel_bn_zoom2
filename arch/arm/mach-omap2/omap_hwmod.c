@@ -1266,6 +1266,26 @@ static int _enable(struct omap_hwmod *oh)
 	pr_debug("omap_hwmod: %s: enabling\n", oh->name);
 
 	/*
+	 * hwmods with HWMOD_INIT_NO_IDLE flag set are left
+	 * in enabled state at init.
+	 * Now that someone is really trying to enable them,
+	 * just ensure that the hwmod mux is set.
+	 */
+	if (oh->_int_flags & _HWMOD_SKIP_ENABLE) {
+		/*
+		 * If the caller has mux data populated, do the mux'ing
+		 * which wouldn't have been done as part of the _enable()
+		 * done during setup.
+		 */
+		if (oh->mux)
+			omap_hwmod_mux(oh->mux, _HWMOD_STATE_ENABLED);
+
+		oh->_int_flags &= ~_HWMOD_SKIP_ENABLE;
+		return 0;
+	}
+
+
+	/*
 	 * If an IP contains only one HW reset line, then de-assert it in order
 	 * to allow to enable the clocks. Otherwise the PRCM will return
 	 * Intransition status, and the init will failed.
@@ -1519,8 +1539,10 @@ static int _setup(struct omap_hwmod *oh, void *data)
 	 * it should be set by the core code as a runtime flag during startup
 	 */
 	if ((oh->flags & HWMOD_INIT_NO_IDLE) &&
-	    (postsetup_state == _HWMOD_STATE_IDLE))
+	    (postsetup_state == _HWMOD_STATE_IDLE)) {
+		oh->_int_flags |= _HWMOD_SKIP_ENABLE;
 		postsetup_state = _HWMOD_STATE_ENABLED;
+}
 
 	if (postsetup_state == _HWMOD_STATE_IDLE)
 		_idle(oh);
@@ -1835,12 +1857,14 @@ static int __init omap_hwmod_setup_all(void)
 	}
 
 	r = omap_hwmod_for_each(_populate_mpu_rt_base, NULL);
-
+	printk("omap_hwmod_setup_all: _populate_mpu_rt_base done \n");
 	r = omap_hwmod_for_each(_init_clocks, NULL);
+	printk("omap_hwmod_setup_all: _init_clocks done \n");
 	WARN(IS_ERR_VALUE(r),
 	     "omap_hwmod: %s: _init_clocks failed\n", __func__);
 
 	omap_hwmod_for_each(_setup, NULL);
+	printk("omap_hwmod_setup_all: _setup done \n");
 
 	return 0;
 }

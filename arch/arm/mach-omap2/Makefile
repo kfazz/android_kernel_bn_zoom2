@@ -257,6 +257,10 @@ obj-$(CONFIG_MACH_OMAP_ZOOM3)		+= board-zoom.o \
 					   hsmmc.o \
 					   board-zoom-debugboard.o \
 					   omapxx_apps_brd_id.o
+obj-$(CONFIG_MACH_OMAP3621_GOSSAMER)	+= board-3621_gossamer.o \
+					   board-gossamer-wifi.o \
+					   hsmmc.o \
+					   omapxx_apps_brd_id.o
 obj-$(CONFIG_MACH_OMAP_3630SDP)		+= board-3630sdp.o \
 					   board-zoom-peripherals.o \
 					   board-zoom-display.o \

@@ -1524,6 +1524,9 @@ static struct omap_hwmod_ocp_if *omap3xxx_uart2_slaves[] = {
 
 static struct omap_hwmod omap3xxx_uart2_hwmod = {
 	.name		= "uart2",
+#ifdef CONFIG_DEBUG_LL
+	.flags		= HWMOD_INIT_NO_IDLE | HWMOD_INIT_NO_RESET,
+#endif
 	.mpu_irqs	= uart2_mpu_irqs,
 	.mpu_irqs_cnt	= ARRAY_SIZE(uart2_mpu_irqs),
 	.sdma_reqs	= uart2_sdma_reqs,
@@ -2377,7 +2380,11 @@ static struct omap_hwmod_ocp_if *omap3xxx_gpio2_slaves[] = {
 
 static struct omap_hwmod omap3xxx_gpio2_hwmod = {
 	.name		= "gpio2",
+#ifdef CONFIG_DEBUG_LL
+ 	.flags	= (HWMOD_CONTROL_OPT_CLKS_IN_RESET | HWMOD_INIT_NO_RESET),
+#else
 	.flags		= HWMOD_CONTROL_OPT_CLKS_IN_RESET,
+#endif
 	.mpu_irqs	= omap3xxx_gpio2_irqs,
 	.mpu_irqs_cnt	= ARRAY_SIZE(omap3xxx_gpio2_irqs),
 	.main_clk	= "gpio2_ick",

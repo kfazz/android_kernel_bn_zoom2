@@ -28,15 +28,18 @@
 #include <linux/pm.h>
 #include <linux/i2c/twl.h>
 #include <linux/platform_device.h>
+#include <linux/reboot.h>
 
 #include <asm/mach-types.h>
 
 #include <../../mach-omap2/smartreflex.h>
 
 static u8 twl4030_start_script_address = 0x2b;
+static uint32_t twl4030_rev;
 
 #define PWR_P1_SW_EVENTS	0x10
-#define PWR_DEVOFF	(1<<0)
+#define PWR_DEVOFF		(1 << 0)
+#define SEQ_OFFSYNC		(1 << 0)
 
 #define PHY_TO_OFF_PM_MASTER(p)		(p - 0x36)
 #define PHY_TO_OFF_PM_RECEIVER(p)	(p - 0x5b)
@@ -54,7 +57,8 @@ static u8 twl4030_start_script_address = 0x2b;
 
 #define LVL_WAKEUP	0x08
 
-#define ENABLE_WARMRESET (1<<4)
+#define ENABLE_WARMRESET	(1<<4)
+#define STOPON_PWRON		(1<<6)
 
 #define END_OF_SCRIPT		0x3f
 
@@ -128,6 +132,30 @@ static u8 res_config_addrs[] = {
 	[RES_32KCLKOUT]	= 0x8e,
 	[RES_RESET]	= 0x91,
 	[RES_MAIN_REF]	= 0x94,
+};
+
+/*
+ * PRCM on OMAP3 will drive SYS_OFFMODE low during DPLL3 warm reset.
+ * This causes Gaia sleep script to execute, usually killing VDD1 and
+ * VDD2 while code is running.  WA is to disable the sleep script
+ * before warm reset.
+ */
+static int twl4030_prepare_for_reboot(struct notifier_block *this,
+		unsigned long cmd, void *p)
+{
+	int err;
+
+	err = twl4030_remove_script(TWL4030_SLEEP_SCRIPT);
+	if (err)
+		pr_err("TWL4030: error trying to disable sleep script!\n");
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block twl4030_reboot_notifier = {
+		.notifier_call = twl4030_prepare_for_reboot,
+		.next = NULL,
+		.priority = 0
 };
 
 static int __init twl4030_write_script_byte(u8 address, u8 byte)
@@ -299,7 +327,7 @@ static int __init twl4030_config_warmreset_sequence(u8 address)
 	if (err)
 		goto out;
 
-	rd_data |= ENABLE_WARMRESET;
+	rd_data |= ENABLE_WARMRESET | STOPON_PWRON;
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, rd_data,
 				R_P1_SW_EVENTS);
 	if (err)
@@ -310,7 +338,7 @@ static int __init twl4030_config_warmreset_sequence(u8 address)
 	if (err)
 		goto out;
 
-	rd_data |= ENABLE_WARMRESET;
+	rd_data |= ENABLE_WARMRESET | STOPON_PWRON;
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, rd_data,
 				R_P2_SW_EVENTS);
 	if (err)
@@ -321,7 +349,7 @@ static int __init twl4030_config_warmreset_sequence(u8 address)
 	if (err)
 		goto out;
 
-	rd_data |= ENABLE_WARMRESET;
+	rd_data |= ENABLE_WARMRESET | STOPON_PWRON;
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, rd_data,
 				R_P3_SW_EVENTS);
 out:
@@ -540,12 +568,56 @@ void __init twl4030_power_sr_init()
 	omap_sr_register_pmic(&twl4030_sr_data);
 }
 
+/*
+ * In master mode, start the power off sequence.
+ * After a successful execution, TWL shuts down the power to the SoC
+ * and all peripherals connected to it.
+ */
+void twl4030_power_off(void)
+{
+	int err;
+
+	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, PWR_DEVOFF,
+			       TWL4030_PM_MASTER_P1_SW_EVENTS);
+	if (err)
+		pr_err("TWL4030 Unable to power off\n");
+
+}
+
+static void twl4030_load_rev(void)
+{
+	int err;
+
+	err = twl_i2c_write_u8(TWL4030_MODULE_INTBR,
+			TWL_EEPROM_R_UNLOCK, REG_UNLOCK_TEST_REG);
+	if (err)
+		pr_err("TWL4030 Unable to unlock IDCODE registers\n");
+
+	err = twl_i2c_read(TWL4030_MODULE_INTBR, (u8 *)(&twl4030_rev),
+			0x0, 4);
+	if (err)
+		pr_err("TWL4030: unable to read IDCODE-%d\n", err);
+
+	err = twl_i2c_write_u8(TWL4030_MODULE_INTBR, 0x0,
+			REG_UNLOCK_TEST_REG);
+	if (err)
+		pr_err("TWL4030 Unable to relock IDCODE registers\n");
+}
+
+bool twl_rev_is_tps65921(void)
+{
+	if (twl4030_rev == 0)
+		twl4030_load_rev();
+
+	return TWL_SIL_TYPE(twl4030_rev) == TWL_SIL_TPS65921;
+}
+
 void __init twl4030_power_init(struct twl4030_power_data *twl4030_scripts)
 {
 	int err = 0;
 	int i;
 	struct twl4030_resconfig *resconfig;
-	u8 address = twl4030_start_script_address;
+	u8 val, address = twl4030_start_script_address;
 
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER,
 			TWL4030_PM_MASTER_KEY_CFG1,
@@ -577,10 +649,35 @@ void __init twl4030_power_init(struct twl4030_power_data *twl4030_scripts)
 		}
 	}
 
+	/* Board has to be wired properly to use this feature */
+	if (twl4030_scripts->use_poweroff && !pm_power_off) {
+		/* Default for SEQ_OFFSYNC is set, lets ensure this */
+		err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &val,
+				      TWL4030_PM_MASTER_CFG_P123_TRANSITION);
+		if (err) {
+			pr_warning("TWL4030 Unable to read registers\n");
+
+		} else if (!(val & SEQ_OFFSYNC)) {
+			val |= SEQ_OFFSYNC;
+			err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, val,
+					TWL4030_PM_MASTER_CFG_P123_TRANSITION);
+			if (err) {
+				pr_err("TWL4030 Unable to setup SEQ_OFFSYNC\n");
+				goto relock;
+			}
+		}
+
+		pm_power_off = twl4030_power_off;
+	}
+
+relock:
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, 0,
 			TWL4030_PM_MASTER_PROTECT_KEY);
 	if (err)
 		pr_err("TWL4030 Unable to relock registers\n");
+	err = register_reboot_notifier(&twl4030_reboot_notifier);
+	if (err)
+		pr_err("TWL4030 Failed to register reboot notifier\n");
 	return;
 
 unlock:

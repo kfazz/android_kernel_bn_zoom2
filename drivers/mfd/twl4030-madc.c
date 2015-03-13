@@ -133,6 +133,31 @@ const struct twl4030_madc_conversion_method twl4030_conversion_methods[] = {
 			      },
 };
 
+#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+
+#define R_GPBR1				0x0c
+#define GPBR1_MADC_HFCLK_EN		(1u << 7)
+#define GPBR1_DEFAULT_MADC_CLK_EN	(1u << 4)
+
+/*
+ * Explicitly control MADC clock. This is needed if battery power is not
+ * managed by the PMIC, in which case MADC clock must be managed by the
+ * MADC driver itself.
+ */
+static void twl4030_madc_clock(int on)
+{
+	uint8_t val;
+
+	twl_i2c_read_u8(TWL4030_MODULE_INTBR, &val, R_GPBR1);
+	if (on)
+	       val |= GPBR1_DEFAULT_MADC_CLK_EN | GPBR1_MADC_HFCLK_EN;
+	else
+	       val &= ~(GPBR1_DEFAULT_MADC_CLK_EN | GPBR1_MADC_HFCLK_EN);
+	twl_i2c_write_u8(TWL4030_MODULE_INTBR, val, R_GPBR1);
+}
+
+#endif /* CONFIG_MACH_OMAP3621_GOSSAMER */
+
 /*
  * Function to read a particular channel value.
  * @madc - pointer to struct twl4030_madc_data
@@ -510,8 +535,9 @@ int twl4030_madc_conversion(struct twl4030_madc_request *req)
 	u8 ch_msb, ch_lsb;
 	int ret;
 
-	if (!req)
+	if (!req || !twl4030_madc)
 		return -EINVAL;
+
 	mutex_lock(&twl4030_madc->lock);
 	if (req->method < TWL4030_MADC_RT || req->method > TWL4030_MADC_SW2) {
 		ret = -EINVAL;
@@ -530,13 +556,13 @@ int twl4030_madc_conversion(struct twl4030_madc_request *req)
 	if (ret) {
 		dev_err(twl4030_madc->dev,
 			"unable to write sel register 0x%X\n", method->sel + 1);
-		return ret;
+		goto out;
 	}
 	ret = twl_i2c_write_u8(TWL4030_MODULE_MADC, ch_lsb, method->sel);
 	if (ret) {
 		dev_err(twl4030_madc->dev,
 			"unable to write sel register 0x%X\n", method->sel + 1);
-		return ret;
+		goto out;
 	}
 	/* Select averaging for all channels if do_avg is set */
 	if (req->do_avg) {
@@ -546,7 +572,7 @@ int twl4030_madc_conversion(struct twl4030_madc_request *req)
 			dev_err(twl4030_madc->dev,
 				"unable to write avg register 0x%X\n",
 				method->avg + 1);
-			return ret;
+			goto out;
 		}
 		ret = twl_i2c_write_u8(TWL4030_MODULE_MADC,
 				       ch_lsb, method->avg);
@@ -554,7 +580,7 @@ int twl4030_madc_conversion(struct twl4030_madc_request *req)
 			dev_err(twl4030_madc->dev,
 				"unable to write sel reg 0x%X\n",
 				method->sel + 1);
-			return ret;
+			goto out;
 		}
 	}
 	if (req->type == TWL4030_MADC_IRQ_ONESHOT && req->func_cb != NULL) {
@@ -706,6 +732,8 @@ static int __devinit twl4030_madc_probe(struct platform_device *pdev)
 	if (!madc)
 		return -ENOMEM;
 
+	madc->dev = &pdev->dev;
+
 	/*
 	 * Phoenix provides 2 interrupt lines. The first one is connected to
 	 * the OMAP. The other one can be connected to the other processor such
@@ -718,6 +746,9 @@ static int __devinit twl4030_madc_probe(struct platform_device *pdev)
 	ret = twl4030_madc_set_power(madc, 1);
 	if (ret < 0)
 		goto err_power;
+#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+	twl4030_madc_clock(1);
+#endif
 	ret = twl4030_madc_set_current_generator(madc, 0, 1);
 	if (ret < 0)
 		goto err_current_generator;
@@ -737,6 +768,28 @@ static int __devinit twl4030_madc_probe(struct platform_device *pdev)
 			TWL4030_BCI_BCICTL1);
 		goto err_i2c;
 	}
+
+	/* Check that MADC clock is on */
+	ret = twl_i2c_read_u8(TWL4030_MODULE_INTBR, &regval, TWL4030_REG_GPBR1);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to read reg GPBR1 0x%X\n",
+				TWL4030_REG_GPBR1);
+		goto err_i2c;
+	}
+
+	/* If MADC clk is not on, turn it on */
+	if (!(regval & TWL4030_GPBR1_MADC_HFCLK_EN)) {
+		dev_info(&pdev->dev, "clk disabled, enabling\n");
+		regval |= TWL4030_GPBR1_MADC_HFCLK_EN;
+		ret = twl_i2c_write_u8(TWL4030_MODULE_INTBR, regval,
+				       TWL4030_REG_GPBR1);
+		if (ret) {
+			dev_err(&pdev->dev, "unable to write reg GPBR1 0x%X\n",
+					TWL4030_REG_GPBR1);
+			goto err_i2c;
+		}
+	}
+
 	platform_set_drvdata(pdev, madc);
 	mutex_init(&madc->lock);
 	ret = request_threaded_irq(platform_get_irq(pdev, 0), NULL,
@@ -766,6 +819,9 @@ static int __devexit twl4030_madc_remove(struct platform_device *pdev)
 
 	free_irq(platform_get_irq(pdev, 0), madc);
 	platform_set_drvdata(pdev, NULL);
+#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+	twl4030_madc_clock(0);
+#endif
 	twl4030_madc_set_current_generator(madc, 0, 0);
 	twl4030_madc_set_power(madc, 0);
 	kfree(madc);
