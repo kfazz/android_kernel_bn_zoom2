@@ -35,6 +35,10 @@
 
 #include <linux/i2c/twl.h>
 
+#if defined CONFIG_MACH_OMAP3621_GOSSAMER
+#include <plat/board-boxer.h>
+#define DCDC_GLOBAL_CFG  (0x61-0x5b)
+#endif
 
 /*
  * The GPIO "subchip" supports 18 GPIOs which can be configured as
@@ -46,7 +50,6 @@
  *
  * There are also two LED pins used sometimes as output-only GPIOs.
  */
-
 
 static struct gpio_chip twl_gpiochip;
 static int twl4030_gpio_irq_base;
@@ -206,6 +209,8 @@ static int twl4030_get_gpio_datain(int gpio)
 static int twl_request(struct gpio_chip *chip, unsigned offset)
 {
 	int status = 0;
+	int ret;
+	u8  RdReg;
 
 	mutex_lock(&gpio_lock);
 
@@ -255,6 +260,17 @@ static int twl_request(struct gpio_chip *chip, unsigned offset)
 		/* optionally have the first two GPIOs switch vMMC1
 		 * and vMMC2 power supplies based on card presence.
 		 */
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER)
+        /* Change Triton card power based on polarity on CD1 */
+     	if(is_encore_board_evt2()) {
+     		ret = twl_i2c_read_u8(TWL4030_MODULE_PM_RECEIVER, &RdReg,
+             		   DCDC_GLOBAL_CFG);
+ 
+     		RdReg |= 0x40;
+     		ret |= twl_i2c_write_u8(TWL4030_MODULE_PM_RECEIVER, RdReg,
+                	   DCDC_GLOBAL_CFG);
+       	}
+#endif
 		pdata = chip->dev->platform_data;
 		value |= pdata->mmc_cd & 0x03;
 

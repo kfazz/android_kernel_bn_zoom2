@@ -265,8 +265,19 @@ static int omap_hsmmc_card_detect(struct device *dev, int slot)
 {
 	struct omap_mmc_platform_data *mmc = dev->platform_data;
 
-	/* NOTE: assumes card detect signal is active-low */
-	return !gpio_get_value_cansleep(mmc->slots[0].switch_pin);
+#if defined(CONFIG_MACH_OMAP3621_EVT1A) || defined(MACH_OMAP3621_GOSSAMER)
+ 		/* NOTE: assumes card detect signal is active-low */
+		 /*for EVT2 and later, card is high when present*/
+	if(slot==0) {
+		if(is_encore_board_evt2()) {
+			return gpio_get_value_cansleep(mmc->slots[0].switch_pin);
+		} else {
+			return !gpio_get_value_cansleep(mmc->slots[0].switch_pin);
+		}
+	} else {
+		return !gpio_get_value_cansleep(mmc->slots[0].switch_pin);
+	}
+#endif /* CONFIG_MACH_OMAP3621_EVT1A */
 }
 
 static int omap_hsmmc_get_wp(struct device *dev, int slot)

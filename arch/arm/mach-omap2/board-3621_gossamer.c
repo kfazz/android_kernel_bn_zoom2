@@ -391,6 +391,39 @@ static struct regulator_init_data gossamer_vsim = {
 	.consumer_supplies      = &gossamer_vsim_supply,
 };
 
+static struct regulator_consumer_supply encore_vmmc2_supply = {
+	.dev_name	= "omap_hsmmc.1",
+	.supply		= "vmmc",
+};
+
+/* VMMC2 for MMC2 card */
+static struct regulator_init_data encore_vmmc2 = {
+	.constraints = {
+		.min_uV			= 1850000,
+		.max_uV			= 1850000,
+		.always_on		= 1,
+		.boot_on		= 1,
+	},
+	.num_consumer_supplies  = 1,
+	.consumer_supplies      = &encore_vmmc2_supply,
+};
+
+static struct fixed_voltage_config encore_vmmc2_fixed_config = {
+	.supply_name		= "vmmc2",
+	.microvolts		= 1850000,
+	.gpio			= -EINVAL,
+	.enabled_at_boot	= 1,
+	.init_data		= &encore_vmmc2,
+};
+static struct platform_device encore_vmmc2_fixed_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 2,
+	.dev = {
+		.platform_data	= &encore_vmmc2_fixed_config,
+	},
+};
+
+
 /* The order is reverted in this table so that internal eMMC is presented
  * as first mmc card for compatibility with existing android installations */
 static struct omap2_hsmmc_info mmc[] = {
@@ -422,6 +455,7 @@ static struct omap2_hsmmc_info mmc[] = {
 	{}      /* Terminator */
 };
 
+#if 0
 static int gossamer_hsmmc_card_detect(struct device *dev, int slot)
 {
 	struct omap_mmc_platform_data *mmc = dev->platform_data;
@@ -457,7 +491,7 @@ static __init void gossamer_hsmmc_set_late_init(struct device *dev)
 	pdata = dev->platform_data;
 	pdata->init = gossamer_twl4030_hsmmc_late_init;
 }
-
+#endif
 static int __ref gossamer_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
 {
@@ -465,19 +499,18 @@ static int __ref gossamer_twl_gpio_setup(struct device *dev,
 	/* gpio + 0 is "mmc0_cd" (input/IRQ),
 	 * gpio + 1 is "mmc1_cd" (input/IRQ)
 	 */
-	mmc[0].gpio_cd = gpio + 0;
-	mmc[1].gpio_cd = gpio + 1;
+	mmc[1].gpio_cd = gpio + 0;
+	mmc[0].gpio_cd = gpio + 1;
 	omap2_hsmmc_init(mmc);
-
-	for (c = mmc; c->mmc; c++)
-                gossamer_hsmmc_set_late_init(c->dev);
+//	for (c = mmc; c->mmc; c++)
+  //              gossamer_hsmmc_set_late_init(c->dev);
 
 	/* link regulators to MMC adapters ... we "know" the
 	 * regulators will be set up only *after* we return.
 	*/
-	gossamer_vmmc1_supply.dev = mmc[0].dev;
-	gossamer_vsim_supply.dev = mmc[0].dev;
-	gossamer_vmmc2_supply.dev = mmc[1].dev;
+	gossamer_vmmc1_supply.dev = mmc[1].dev;
+	gossamer_vsim_supply.dev = mmc[1].dev;
+	gossamer_vmmc2_supply.dev = mmc[0].dev;
 
 	return 0;
 }
@@ -639,7 +672,7 @@ static struct twl4030_platform_data __refdata gossamer_twldata = {
 	.keypad		= &gossamer_kp_twl4030_data,
 	.power		= &gossamer_t2scripts_data, // Only valid during init
 	.vmmc1          = &gossamer_vmmc1,
-	.vmmc2          = &gossamer_vmmc2,
+//	.vmmc2          = &gossamer_vmmc2,
 	.vsim           = &gossamer_vsim,
 //	.vdac		= &gossamer_vdac,
 //	.vpll2		= &gossamer_vdsi,
@@ -899,6 +932,7 @@ static void __init omap_gossamer_init(void)
 
 
 	omap_i2c_init();
+	platform_device_register(&encore_vmmc2_fixed_device);
 	/* Fix to prevent VIO leakage on wl127x */
 //	wl127x_vio_leakage_fix();
 	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));

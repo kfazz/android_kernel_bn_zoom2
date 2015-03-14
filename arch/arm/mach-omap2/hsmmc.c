@@ -19,6 +19,10 @@
 #include <plat/mux.h>
 #include <plat/omap_device.h>
 
+#if defined(MACH_OMAP3621_GOSSAMER)
+#include <mach/board-boxer.h>
+#endif
+
 #include "mux.h"
 #include "hsmmc.h"
 #include "control.h"
