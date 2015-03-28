@@ -10,6 +10,10 @@
 #include <linux/err.h>
 #include <linux/version.h>
 
+
+#include <plat/omap_hwmod.h>
+#include <plat/clock.h>
+
 #include "halDSS.h"
 #include "OMAP3430.h"
 
@@ -37,6 +41,10 @@ struct clk *dss1_fck;// "dss1_fck", "dss1_alwon_fck" },
 struct clk *dss2_fck;// "dss2_fck", "dss2_alwon_fck" },
 struct clk *dss_54m_fck;// "dss_54m_fck", "dss_tv_fck" },
 struct clk *dss_96m_fck;// NULL, "dss_96m_fck" },
+
+struct omap_hwmod *oh_dss;
+struct omap_hwmod *oh_dispc;
+struct omap_hwmod *oh_dsi;
 
 void line1_isr(void);
 void vsync_isr(void);
@@ -270,7 +278,7 @@ int halDSS_Init(void)
 
     tRes = FALSE;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+#if 0
     dss_ick = clk_get(NULL, "dss_ick");
     if (IS_ERR(dss_ick))
         printk(KERN_ERR "Can't get dss_ick.\n");
@@ -290,31 +298,31 @@ int halDSS_Init(void)
     dss_96m_fck = clk_get(NULL, "dss_96m_fck");
     if (IS_ERR(dss_96m_fck))
         printk(KERN_ERR "Can't get dss_96m_fck.\n");
-#else
-    dss_ick = clk_get_sys(NULL, "ick");
+#endif
+#if 0
+    dss_ick = clk_get(NULL, "dss_ick");
     if (IS_ERR(dss_ick))
         printk(KERN_ERR "Can't get dss_ick.\n");
     
-    dss1_fck = clk_get_sys(NULL, "dss1_fck");
+    dss1_fck = clk_get(NULL, "dss1_alwon_fck");
     if (IS_ERR(dss1_fck))
         printk(KERN_ERR "Can't get dss1_fck.\n");
     
-    dss2_fck = clk_get_sys(NULL, "dss2_fck");
+    dss2_fck = clk_get(NULL, "dss2_alwon_fck");
     if (IS_ERR(dss2_fck))
         printk(KERN_ERR "Can't get dss2_fck.\n");
     
-    dss_54m_fck = clk_get_sys(NULL, "tv_fck");
+    dss_54m_fck = clk_get(NULL, "dss_tv_fck");
     if (IS_ERR(dss_54m_fck))
         printk(KERN_ERR "Can't get tv_fck.\n");
 
-    dss_96m_fck = clk_get_sys(NULL, "video_fck");
+    dss_96m_fck = clk_get(NULL, "dss_96m_fck");
     if (IS_ERR(dss_96m_fck))
         printk(KERN_ERR "Can't get video_fck.\n");
 #endif
- 
+#if 0
     clk_enable(dss_ick);
-    clk_enable(dss1_fck);
-    clk_enable(dss2_fck); 
+
     clk_enable(dss_54m_fck);
     clk_enable(dss_96m_fck);    
 
@@ -323,8 +331,70 @@ int halDSS_Init(void)
     pr_debug("dss2_fck = %ld\n", clk_get_rate(dss2_fck));
     pr_debug("dss_54m_fck = %ld\n", clk_get_rate(dss_54m_fck));
     pr_debug("dss_96m_fck = %ld\n", clk_get_rate(dss_96m_fck));
+#endif
+
+#if 0
+/* DSS Core*/
+    oh_dss = omap_hwmod_lookup("dss_core");
+    if(!oh_dss)
+	printk("Could not look up dss\n");
+    tRes = omap_hwmod_enable_clocks(oh_dss);
+	printk("enable dss clocks result: %d\n",tRes);
+    tRes = omap_hwmod_enable(oh_dss);
+	printk("enable dss result: %d\n",tRes);
+    tRes = omap_hwmod_reset(oh_dss);
+	printk("reset dss result: %d\n",tRes);
+
+/* DISPC*/
+    oh_dispc = omap_hwmod_lookup("dss_dispc");
+    if(!oh_dispc)
+	printk("Could not look up dispc\n");
+    tRes = omap_hwmod_enable_clocks(oh_dispc);
+	printk("enable dispc clocks result: %d\n",tRes);
+    tRes = omap_hwmod_enable(oh_dispc);
+	printk("enable dispc result: %d\n",tRes);
+//    tRes = omap_hwmod_reset(oh_dispc);
+//	printk("reset dispc result: %d\n",tRes);
+
+/* DSI*/
+    oh_dsi = omap_hwmod_lookup("dss_dsi1");
+    if(!oh_dsi)
+	printk("Could not look up dsi\n");
+    tRes = omap_hwmod_enable_clocks(oh_dsi);
+	printk("enable dsi clocks result: %d\n",tRes);
+    tRes = omap_hwmod_enable(oh_dsi);
+	printk("enable dsi result: %d\n",tRes);
+   // tRes = omap_hwmod_reset(oh_dsi);
+	//	printk("reset dsi result: %d\n",tRes);
+#endif
+
+
+   oh_dss = omap_hwmod_lookup("dss_core");
+   omap_hwmod_enable_clocks(oh_dss);
+   oh_dss = omap_hwmod_lookup("dss_dispc");
+   omap_hwmod_enable_clocks(oh_dss);
+   oh_dss = omap_hwmod_lookup("dss_dsi1");
+   omap_hwmod_enable_clocks(oh_dss);
+   oh_dss = omap_hwmod_lookup("dss_rfbi");
+   omap_hwmod_enable_clocks(oh_dss);
+   oh_dss = omap_hwmod_lookup("dss_venc");
+   omap_hwmod_enable_clocks(oh_dss);
+
+
+
+    dss1_fck = omap_clk_get_by_name("dss1_alwon_fck");
+    if (IS_ERR(dss1_fck))
+        printk(KERN_ERR "Can't get dss1_fck.\n");
+    dss2_fck = omap_clk_get_by_name("dss2_alwon_fck");
+    if (IS_ERR(dss2_fck))
+        printk(KERN_ERR "Can't get dss2_fck.\n");
+    clk_enable(dss1_fck);
+    clk_enable(dss2_fck); 
+    printk("dss1_fck = %ld\n", clk_get_rate(dss1_fck));
+    printk("dss2_fck = %ld\n", clk_get_rate(dss2_fck));
 
     tRes = halDSS_Reset();
+#if 1
 
     if (tRes == FALSE)                                                                      /*Reset did not release*/
     {
@@ -347,11 +417,12 @@ int halDSS_Init(void)
             printk(KERN_ERR "halDSS_Init: DISPC reset not released.\n");
         }
     }
-
+#endif
+	/*FIXME*/
     REG32_WR(HALREG32_DSS_CONTROL_OFFSET + REGBASE_DSS,                                     /*Configure clock sources for DSS*/
              (0 << DISPC_CLK_SWITCH_BITPOS) | (0 << DSI_CLK_SWITCH_BITPOS));
 
-
+#if 1
     /*Reset DSI protocol engine*/
     tRes = FALSE;
     REG32_SET_BIT(HALREG32_DSI_SYSCONFIG_OFFSET + REGBASE_DSI, SOFTRESET_BITPOS);
@@ -367,6 +438,8 @@ int halDSS_Init(void)
     {
         printk(KERN_ERR "halDSS_Init: DSI reset not released.\n");
     }
+#endif
+
 
     REG32_WR(HALREG32_DSI_SYSCONFIG_OFFSET + REGBASE_DSI, 0x310);
 

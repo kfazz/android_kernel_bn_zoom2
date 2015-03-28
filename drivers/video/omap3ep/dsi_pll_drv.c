@@ -234,6 +234,10 @@ int dsi_pll_set_clk(u32 pll_clk_khz)
 		//PllBase[DSI_PLL_GO] |= DSI_PLL_GO_MASK;
 		REG32_WR(PllBase+DSI_PLL_GO, REG32_RD(PllBase+DSI_PLL_GO) | DSI_PLL_GO_MASK);
 
+               /* Wait DSI PLL to accept GO */
+               while (REG32_RD(PllBase+DSI_PLL_GO) & DSI_PLL_GO_MASK)
+                       udelay(DSI_PLL_POLLING_INTERVAL);
+
 		for (timeoutCnt = DSI_PLL_TIMEOUT; timeoutCnt; timeoutCnt--)
 		{
 			if (REG32_RD(PllBase+DSI_PLL_STATUS) & DSI_PLL_LOCK_MASK)
