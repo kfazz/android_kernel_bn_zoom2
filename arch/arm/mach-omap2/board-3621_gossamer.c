@@ -935,6 +935,7 @@ static void __init omap_gossamer_init(void)
 	platform_device_register(&encore_vmmc2_fixed_device);
 	/* Fix to prevent VIO leakage on wl127x */
 //	wl127x_vio_leakage_fix();
+	omap_register_ion();
 	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));
 
 //	omap_board_config = gossamer_config;
