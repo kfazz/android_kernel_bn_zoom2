@@ -763,22 +763,30 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 	{
 		case STATE_MOVE:
 			dev_dbg(&tsc->client->dev, "%d move(%d,%d)\n", id, x, y);
-			input_report_abs(tsc->input, ABS_X, x);
-			input_report_abs(tsc->input, ABS_Y, y);
+			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
+			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
 			break;
 
 		case STATE_DOWN:
 			dev_dbg(&tsc->client->dev, "%d down(%d,%d)\n", id, x, y);
-			input_report_abs(tsc->input, ABS_X, x);
-			input_report_abs(tsc->input, ABS_Y, y);
-			input_report_key(tsc->input, BTN_TOUCH, 1);
+			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
+			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
+			input_report_abs(tsc->input, ABS_MT_PRESSURE, 255);
+			//input_report_key(tsc->input, BTN_TOUCH, 1);
 			break;
 
 		case STATE_UP:
 			dev_dbg(&tsc->client->dev, "%d up(%d,%d)\n", id, x, y);
-			input_report_abs(tsc->input, ABS_X, x);
-			input_report_abs(tsc->input, ABS_Y, y);
-			input_report_key(tsc->input, BTN_TOUCH, 0);
+#if 1 
+
+			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
+			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
+			input_report_abs(tsc->input, ABS_MT_PRESSURE, 0);
+			//input_report_key(tsc->input, BTN_TOUCH, 0);
+			input_sync(tsc->input);
+//#else
+			input_mt_sync(tsc->input);
+#endif
 			break;
 
 		default:
@@ -1494,13 +1502,15 @@ static int zforce_probe(struct i2c_client *client,
 	set_bit(EV_KEY, input_dev->evbit);
 	set_bit(EV_SYN, input_dev->evbit);
 	set_bit(EV_ABS, input_dev->evbit);
-	set_bit(BTN_TOUCH, input_dev->keybit);
+	//set_bit(BTN_TOUCH, input_dev->keybit);
 
-	input_set_abs_params(input_dev, ABS_X, 0, pdata->width, 0, 0);
-	input_set_abs_params(input_dev, ABS_Y, 0, pdata->height, 0, 0);
+	//input_set_abs_params(input_dev, ABS_X, 0, pdata->width, 0, 0);
+	//input_set_abs_params(input_dev, ABS_Y, 0, pdata->height, 0, 0);
 
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, pdata->width, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, pdata->height, 0, 0);
+
+	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
 
 	tsc->irq = client->irq;
 	tsc->err_cnt = 0;
