@@ -27,6 +27,8 @@
 #ifndef __OMAPLFB_H__
 #define __OMAPLFB_H__
 
+#define DEBUG
+
 #include <linux/version.h>
 
 #include <asm/atomic.h>
@@ -126,13 +128,13 @@ typedef struct OMAPLFB_FBINFO_TAG
 	
 	PVRSRV_PIXEL_FORMAT ePixelFormat;
 
-	OMAPLFB_BOOL        bIs2D;
-	IMG_SYS_PHYADDR     *psPageList;
-#if defined(CONFIG_ION_OMAP)
-	struct ion_handle   *psIONHandle;
+#if defined(CONFIG_DSSCOMP)
+	OMAPLFB_BOOL		bIs2D;
+	IMG_SYS_PHYADDR		*psPageList;
+	struct ion_handle	*psIONHandle;
+	IMG_UINT32			uiBytesPerPixel;
 #endif
-	IMG_UINT32          uiBytesPerPixel;
-}OMAPLFB_FBINFO;
+} OMAPLFB_FBINFO;
 
 typedef struct OMAPLFB_DEVINFO_TAG
 {

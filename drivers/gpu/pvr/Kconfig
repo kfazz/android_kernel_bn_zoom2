@@ -1,7 +1,7 @@
 
 config PVR_SGX
 	tristate "PowerVR SGX support"
-	depends on ARCH_OMAP && OMAP2_DSS
+	depends on ARCH_OMAP
 	select PVR_OMAP_DSS2
 	help
 	  Enable this option to build support for the PowerVR SGX 3D core.

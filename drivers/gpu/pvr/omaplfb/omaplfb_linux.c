@@ -25,7 +25,6 @@
  ******************************************************************************/
 
 #include <linux/version.h>
-
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38))
 #ifndef AUTOCONF_INCLUDED
 #include <linux/config.h>
@@ -47,7 +46,14 @@
 #include <linux/workqueue.h>
 #include <linux/fb.h>
 #include <linux/console.h>
+
+#if defined PLAT_TI81xx
+#include <linux/ti81xxfb.h>
+#include <plat/ti81xx-vpss.h>
+#else
 #include <linux/omapfb.h>
+#endif
+
 #include <linux/mutex.h>
 
 #if defined(PVR_OMAPLFB_DRM_FB)
@@ -79,6 +85,12 @@
 #undef PVR_DEBUG
 #endif
 #endif	
+
+#if defined(CONFIG_DSSCOMP)
+#include <mach/tiler.h>
+#include <video/dsscomp.h>
+#include <plat/dsscomp.h>
+#endif 
 
 #include "img_defs.h"
 #include "servicesext.h"
@@ -244,12 +256,6 @@ void OMAPLFBDestroySwapQueue(OMAPLFB_SWAPCHAIN *psSwapChain)
 	destroy_workqueue(psSwapChain->psWorkQueue);
 }
 
-#if defined(CONFIG_DSSCOMP)
-#include <video/dsscomp.h>
-#include <plat/dsscomp.h>
-#include <linux/omapfb.h>
-#endif
-
 void OMAPLFBFlip(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_BUFFER *psBuffer)
 {
 	struct fb_var_screeninfo sFBVar;
@@ -265,23 +271,19 @@ void OMAPLFBFlip(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_BUFFER *psBuffer)
 
 	ulYResVirtual = psBuffer->ulYOffset + sFBVar.yres;
 
-	
 #if defined(CONFIG_DSSCOMP)
 	{
-		/*
-		 * If using DSSCOMP, we need to use dsscomp queuing for normal
-		 * framebuffer updates, so that previously used overlays get
-		 * automatically disabled, and manager gets dirtied.  We can
-		 * do that because DSSCOMP takes ownership of all pipelines on
-		 * a manager.
-		 */
+		
 		struct fb_fix_screeninfo sFBFix = psDevInfo->psLINFBInfo->fix;
-		struct dsscomp_setup_dispc_data d = {
+		struct dsscomp_setup_dispc_data d =
+		{
 			.num_ovls = 1,
 			.num_mgrs = 1,
 			.mgrs[0].alpha_blending = 1,
-			.ovls[0] = {
-				.cfg = {
+			.ovls[0] =
+			{
+				.cfg =
+				{
 					.win.w = sFBVar.xres,
 					.win.h = sFBVar.yres,
 					.crop.x = sFBVar.xoffset,
@@ -296,7 +298,8 @@ void OMAPLFBFlip(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_BUFFER *psBuffer)
 				},
 			},
 		};
-		/* do not map buffer into TILER1D as it is contiguous */
+
+		
 		struct tiler_pa_info *pas[] = { NULL };
 
 		d.ovls[0].ba = sFBFix.smem_start;
@@ -304,11 +307,12 @@ void OMAPLFBFlip(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_BUFFER *psBuffer)
 
 		res = dsscomp_gralloc_queue(&d, pas, true, NULL, NULL);
 	}
-#else
+#else 
+	
 #if !defined(PVR_OMAPLFB_DONT_USE_FB_PAN_DISPLAY)
 	
 	if (sFBVar.xres_virtual != sFBVar.xres || sFBVar.yres_virtual < ulYResVirtual)
-#endif
+#endif 
 	{
 		sFBVar.xres_virtual = sFBVar.xres;
 		sFBVar.yres_virtual = ulYResVirtual;
@@ -330,8 +334,9 @@ void OMAPLFBFlip(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_BUFFER *psBuffer)
 			printk(KERN_ERR DRIVER_PREFIX ": %s: Device %u: fb_pan_display failed (Y Offset: %lu, Error: %d)\n", __FUNCTION__, psDevInfo->uiFBDevID, psBuffer->ulYOffset, res);
 		}
 	}
-#endif
-#endif
+#endif 
+#endif 
+
 	OMAPLFB_CONSOLE_UNLOCK();
 }
 
@@ -473,6 +478,7 @@ void OMAPLFBPrintInfo(OMAPLFB_DEVINFO *psDevInfo)
 
 OMAPLFB_UPDATE_MODE OMAPLFBGetUpdateMode(OMAPLFB_DEVINFO *psDevInfo)
 {
+#if 0
 #if defined(PVR_OMAPLFB_DRM_FB)
 	struct drm_connector *psConnector;
 	OMAPLFB_UPDATE_MODE eMode = OMAPLFB_UPDATE_MODE_UNDEFINED;
@@ -535,10 +541,13 @@ OMAPLFB_UPDATE_MODE OMAPLFBGetUpdateMode(OMAPLFB_DEVINFO *psDevInfo)
 
 	return OMAPLFBFromDSSUpdateMode(eMode);
 #endif	
+#endif
+	return OMAPLFB_UPDATE_MODE_AUTO;
 }
 
 OMAPLFB_BOOL OMAPLFBSetUpdateMode(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_UPDATE_MODE eMode)
 {
+#if 0
 #if defined(PVR_OMAPLFB_DRM_FB)
 	struct drm_connector *psConnector;
 	enum omap_dss_update_mode eDSSMode;
@@ -615,10 +624,39 @@ OMAPLFB_BOOL OMAPLFBSetUpdateMode(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_UPDATE_MOD
 
 	return (res == 0);
 #endif	
+#endif
+ 	 return OMAPLFB_TRUE;
 }
 
 OMAPLFB_BOOL OMAPLFBWaitForVSync(OMAPLFB_DEVINFO *psDevInfo)
 {
+#if defined PLAT_TI81xx
+      int r;
+      void grpx_irq_wait_handler(void *data)
+
+      {
+          complete((struct completion *)data);
+      }
+
+      DECLARE_COMPLETION_ONSTACK(completion);
+
+      if (vps_grpx_register_isr((vsync_callback_t)grpx_irq_wait_handler, &completion, psDevInfo->uiFBDevID) != 0)
+      {
+          printk (KERN_WARNING DRIVER_PREFIX ": Failed to register for vsync call back\n");
+          return OMAPLFB_FALSE;
+      }
+
+//    timeout = wait_for_completion_interruptible_timeout(&completion, timeout);
+
+      r = wait_for_completion_interruptible(&completion);
+
+      if (vps_grpx_unregister_isr((vsync_callback_t)grpx_irq_wait_handler , &completion, psDevInfo->uiFBDevID) != 0)
+      {
+          printk (KERN_WARNING DRIVER_PREFIX ": Failed to un-register for vsync call back\n");
+          return OMAPLFB_FALSE;
+      }
+	return OMAPLFB_TRUE;
+#else
 #if defined(PVR_OMAPLFB_DRM_FB)
 	struct drm_connector *psConnector;
 
@@ -644,11 +682,13 @@ OMAPLFB_BOOL OMAPLFBWaitForVSync(OMAPLFB_DEVINFO *psDevInfo)
 	}
 
 	return OMAPLFB_TRUE;
-#endif	
+#endif
+#endif
 }
 
 OMAPLFB_BOOL OMAPLFBManualSync(OMAPLFB_DEVINFO *psDevInfo)
 {
+#if 0
 #if defined(PVR_OMAPLFB_DRM_FB)
 	struct drm_connector *psConnector;
 
@@ -679,6 +719,8 @@ OMAPLFB_BOOL OMAPLFBManualSync(OMAPLFB_DEVINFO *psDevInfo)
 
 	return OMAPLFB_TRUE;
 #endif	
+#endif	
+	return OMAPLFB_TRUE;
 }
 
 OMAPLFB_BOOL OMAPLFBCheckModeAndSync(OMAPLFB_DEVINFO *psDevInfo)
