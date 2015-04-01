@@ -762,31 +762,20 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 	switch (state)
 	{
 		case STATE_MOVE:
-			dev_dbg(&tsc->client->dev, "%d move(%d,%d)\n", id, x, y);
-			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
-			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
-			break;
-
 		case STATE_DOWN:
 			dev_dbg(&tsc->client->dev, "%d down(%d,%d)\n", id, x, y);
 			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
 			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
 			input_report_abs(tsc->input, ABS_MT_PRESSURE, 255);
-			//input_report_key(tsc->input, BTN_TOUCH, 1);
+			input_mt_sync(tsc->input);
 			break;
 
 		case STATE_UP:
 			dev_dbg(&tsc->client->dev, "%d up(%d,%d)\n", id, x, y);
-#if 1 
-
 			input_report_abs(tsc->input, ABS_MT_POSITION_X, x);
 			input_report_abs(tsc->input, ABS_MT_POSITION_Y, y);
 			input_report_abs(tsc->input, ABS_MT_PRESSURE, 0);
-			//input_report_key(tsc->input, BTN_TOUCH, 0);
-			input_sync(tsc->input);
-//#else
 			input_mt_sync(tsc->input);
-#endif
 			break;
 
 		default:
