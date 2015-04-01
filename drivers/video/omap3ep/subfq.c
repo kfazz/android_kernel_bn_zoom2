@@ -29,6 +29,7 @@
 #include <plat/sram.h>
 #include <plat/vram.h>
 #include <plat/dma.h>
+#include <plat/omap-pm.h>
 //#include <plat/resource.h>
 
 #include "omap3epfb.h"
@@ -579,21 +580,18 @@ static void omap3epfb_max_opps_request(struct fb_info *info)
 	int i;
 	i = resource_request("vdd1_opp",info->device, MAX_VDD1_OPP);
 	BUG_ON(i);
+#endif
 	omap_pm_set_min_bus_tput(info->device, OCP_INITIATOR_AGENT,
 						166 * 1000 * 4);
-#endif
-	printk("FIXME: omap3epfb_max_opps_request not implemented\n");
-
 }
 
 static void omap3epfb_max_opps_release(struct fb_info *info)
 {
-#if 0
+
 	omap_pm_set_min_bus_tput(info->device, OCP_INITIATOR_AGENT, 0);
+#if 0
 	resource_release("vdd1_opp", info->device);
 #endif
-	printk("FIXME: omap3epfb_max_opps_release not implemented\n");
-
 }
 
 #ifdef CONFIG_FB_OMAP3EP_MANAGE_BORDER
