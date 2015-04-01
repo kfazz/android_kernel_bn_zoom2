@@ -234,7 +234,7 @@ static int __init bq24073_probe(struct platform_device *pdev)
     pdata->init_en = 0;
 
 	bq24073 = regulator_register(&bq24073_desc, &pdev->dev,
-					     pdata->init_data, pdata);
+					pdev->dev.platform_data, pdata);
 	if (IS_ERR(bq24073)) {
 		dev_dbg(&pdev->dev, "couldn't register regulator\n");
 		ret = PTR_ERR(bq24073);
