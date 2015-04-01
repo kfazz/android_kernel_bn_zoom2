@@ -1028,9 +1028,6 @@ static void __init omap_gossamer_reserve(void)
 {
 	/* Must be 2M or board fails early in arch/arm/mm/mmu.c*/
 	omap_ram_console_init(GOSSAMER_RAM_CONSOLE_START,SZ_2M);
-#ifdef CONFIG_ION_OMAP
-	omap_ion_init();
-#endif
 	omap_reserve();
 }
  
