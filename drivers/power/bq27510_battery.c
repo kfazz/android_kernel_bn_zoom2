@@ -193,10 +193,12 @@ static enum power_supply_property bq27510_battery_props[] = {
 	 */
 #ifdef CONFIG_BATTERY_BQ27520
 	POWER_SUPPLY_PROP_CURRENT_AVG,
+#if 0
 	POWER_SUPPLY_PROP_STATE_OF_HEALTH,
 	POWER_SUPPLY_PROP_DATALOG_INDEX,
 	POWER_SUPPLY_PROP_DATALOG_BUFFER,
 	POWER_SUPPLY_PROP_NOMINAL_CAPACITY,
+#endif
 #endif /* CONFIG_BATTERY_BQ27520 */
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	/*
@@ -696,6 +698,7 @@ static int bq27510_battery_get_property(struct power_supply *psy,
 		ret = val->intval = bq27510_battery_voltage(di) * 1000;
 		break;
 #ifdef CONFIG_BATTERY_BQ27520
+#if 0
 	case POWER_SUPPLY_PROP_DATALOG_INDEX:
 		val->intval = bq27510_battery_datalog_index(di);
 		ret = 0;
@@ -712,6 +715,7 @@ static int bq27510_battery_get_property(struct power_supply *psy,
 		val->intval = bq27510_battery_nominal_capacity(di);
 		ret = 0;
 		break;
+#endif
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 #endif /* CONFIG_BATTERY_BQ27520 */
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
