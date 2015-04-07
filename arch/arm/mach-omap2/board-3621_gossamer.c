@@ -829,7 +829,21 @@ void __init gpio_leds(struct gpio_led *leds, int nr)
 	platform_device_register(&gpio_leds_device);
 }
 
+int gossamer_wifi_power(int on)
+{
+	pr_debug("Powering %s wifi", (on ? "on" : "off"));
+	/* VSYS-WLAN also enabled */
+	gpio_direction_output(GOSSAMER_WIFI_EN_POW, on);
+
+	/* only WLAN_EN is driven during power-up/down */
+	gpio_direction_output(GOSSAMER_WIFI_PMENA_GPIO, on);
+
+
+	return 0;
+}
+
 static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
+	.set_power = &gossamer_wifi_power,
 	.irq = OMAP_GPIO_IRQ(GOSSAMER_WIFI_IRQ_GPIO),
 	.board_ref_clock = WL12XX_REFCLOCK_38,
 	/* 2.6.32 has edge triggered falling interrupt */
@@ -838,11 +852,10 @@ static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
 
 static void gossamer_wifi_init(void)
 {
-
-
  if (gpio_request(GOSSAMER_WIFI_EN_POW, "wl12xx_en_pow") ||
  gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1))
  pr_err("Error initializing the wl12xx en_pow gpio\n");
+
 
  if (gpio_request(GOSSAMER_WIFI_IRQ_GPIO, "wl12xx_irq") ||
  gpio_direction_input(GOSSAMER_WIFI_IRQ_GPIO))
@@ -851,8 +864,9 @@ static void gossamer_wifi_init(void)
  gossamer_wlan_data.irq = gpio_to_irq(GOSSAMER_WIFI_IRQ_GPIO);
  if (wl12xx_set_platform_data(&gossamer_wlan_data))
 	pr_err("Error setting wl12xx data\n");
+ //disabled in favor of set_power function because there are two power gpios
+ //platform_device_register(&omap_vwlan_device);
 
- platform_device_register(&omap_vwlan_device);
 }
 
 
