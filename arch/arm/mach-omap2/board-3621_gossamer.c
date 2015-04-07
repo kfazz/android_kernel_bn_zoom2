@@ -48,6 +48,13 @@
 
 #define GOSSAMER_DEBUG_LED_GPIO   90
 
+#define GOSSAMER_WIFI_PMENA_GPIO	22
+#define GOSSAMER_WIFI_IRQ_GPIO		15
+#define GOSSAMER_WIFI_EN_POW		16
+
+/*there probably is no bt uart wired up at all */
+#define WILINK_UART_DEV_NAME            "/dev/ttyO1"
+
 #include <linux/spi/spi.h>
 #include <linux/i2c/twl.h>
 #include <linux/interrupt.h>
@@ -56,6 +63,10 @@
 #include <linux/regulator/bq24073.h>
 #include <linux/switch.h>
 #include <linux/dma-mapping.h>
+
+#include <linux/skbuff.h>
+#include <linux/ti_wilink_st.h>
+#include <linux/wl12xx.h>
 
 #include <plat/hardware.h>
 
@@ -223,44 +234,6 @@ static struct platform_device gossamer_keys_gpio = {
 };
 #endif /* CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C */
 
-#define t2_out(c, r, v) twl4030_i2c_write_u8(c, r, v)
-
-#if 0
-#ifdef CONFIG_FB_OMAP2
-static struct resource gossamer_vout_resource[3 - CONFIG_FB_OMAP2_NUM_FBS] = {
-};
-#else
-static struct resource gossamer_vout_resource[2] = {
-};
-#endif
-
-#ifdef CONFIG_PM
-struct vout_platform_data gossamer_vout_data = {
-	.set_min_bus_tput = omap_pm_set_min_bus_tput,
-	.set_max_mpu_wakeup_lat =  omap_pm_set_max_mpu_wakeup_lat,
-	.set_vdd1_opp = omap_pm_set_min_mpu_freq,
-	.set_cpu_freq = omap_pm_cpu_set_freq,
-};
-#endif
-
-static struct platform_device gossamer_vout_device = {
-	.name		= "omap_vout",
-	.num_resources	= ARRAY_SIZE(gossamer_vout_resource),
-	.resource	= &gossamer_vout_resource[0],
-	.id		= -1,
-#ifdef CONFIG_PM
-	.dev		= {
-		.platform_data = &gossamer_vout_data,
-	}
-#else
-	.dev		= {
-		.platform_data = NULL,
-	}
-#endif
-};
-#endif
-
-/* This is just code left here to leverage on this for Maxim battery charger*/
 #if defined(CONFIG_REGULATOR_BQ24073) || defined(CONFIG_REGULATOR_BQ24073_MODULE)
 static struct bq24073_mach_info bq24073_init_dev_data = {
 	.gpio_nce = GOSSAMER_CHARGE_ENAB_GPIO,
@@ -313,7 +286,38 @@ static struct platform_device gossamer_curr_regulator_device = {
 #define GOSSAMER_RAM_CONSOLE_START 0x8e000000
 #define GOSSAMER_RAM_CONSOLE_SIZE (0x20000)
 
+static int plat_kim_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	/* TODO: wait for HCI-LL sleep */
+	return 0;
+}
+static int plat_kim_resume(struct platform_device *pdev)
+{
+	return 0;
+}
+
+/* wl127x BT, FM, GPS connectivity chip */
+struct ti_st_plat_data wilink_pdata = {
+	.nshutdown_gpio = 60,
+	.dev_name = WILINK_UART_DEV_NAME,
+	.flow_cntrl = 1,
+	.baud_rate = 3000000,
+	.suspend = plat_kim_suspend,
+	.resume = plat_kim_resume,
+};
+static struct platform_device wl127x_device = {
+	.name           = "kim",
+	.id             = -1,
+	.dev.platform_data = &wilink_pdata,
+};
+static struct platform_device btwilink_device = {
+	.name = "btwilink",
+	.id = -1,
+};
+
 static struct platform_device *gossamer_devices[] __initdata = {
+	&wl127x_device,
+	&btwilink_device,
 #ifdef CONFIG_WL127X_RFKILL
 //	&gossamer_wl127x_device,
 #endif
@@ -338,6 +342,11 @@ static struct regulator_consumer_supply gossamer_vmmc2_supply = {
 	.supply		= "vmmc",
 };
 
+static struct regulator_consumer_supply gossamer_vmmc3_supply = {
+	.dev_name	= "omap_hsmmc.2",
+	.supply		= "vmmc",
+};
+
 /* VMMC1 for OMAP VDD_MMC1 (i/o) and MMC1 card */
 static struct regulator_init_data gossamer_vmmc1 = {
 	.constraints = {
@@ -352,7 +361,7 @@ static struct regulator_init_data gossamer_vmmc1 = {
 	.num_consumer_supplies  = 1,
 	.consumer_supplies      = &gossamer_vmmc1_supply,
 };
-
+#if 1
 /* VMMC2 for MMC2 card */
 static struct regulator_init_data gossamer_vmmc2 = {
 	.constraints = {
@@ -375,6 +384,7 @@ static struct regulator_init_data gossamer_vmmc2 = {
 	.num_consumer_supplies  = 1,
 	.consumer_supplies      = &gossamer_vmmc2_supply,
 };
+#endif
 
 /* VSIM for OMAP VDD_MMC1A (i/o for DAT4..DAT7) */
 static struct regulator_init_data gossamer_vsim = {
@@ -391,35 +401,45 @@ static struct regulator_init_data gossamer_vsim = {
 	.consumer_supplies      = &gossamer_vsim_supply,
 };
 
-static struct regulator_consumer_supply encore_vmmc2_supply = {
-	.dev_name	= "omap_hsmmc.1",
-	.supply		= "vmmc",
-};
-
-/* VMMC2 for MMC2 card */
-static struct regulator_init_data encore_vmmc2 = {
-	.constraints = {
-		.min_uV			= 1850000,
-		.max_uV			= 1850000,
-		.always_on		= 1,
-		.boot_on		= 1,
-	},
-	.num_consumer_supplies  = 1,
-	.consumer_supplies      = &encore_vmmc2_supply,
-};
-
-static struct fixed_voltage_config encore_vmmc2_fixed_config = {
+static struct fixed_voltage_config gossamer_vmmc2_fixed_config = {
 	.supply_name		= "vmmc2",
 	.microvolts		= 1850000,
 	.gpio			= -EINVAL,
 	.enabled_at_boot	= 1,
-	.init_data		= &encore_vmmc2,
+	.init_data		= &gossamer_vmmc2,
 };
-static struct platform_device encore_vmmc2_fixed_device = {
+
+static struct regulator_init_data gossamer_vmmc3 = {
+	.constraints = {
+		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies	= 1,
+	.consumer_supplies = &gossamer_vmmc3_supply,
+};
+
+static struct fixed_voltage_config gossamer_vwlan = {
+	.supply_name		= "vwl1271",
+	.microvolts		= 1800000, /* 1.8V */
+	.gpio			= GOSSAMER_WIFI_PMENA_GPIO,
+	.startup_delay		= 70000, /* 70msec */
+	.enable_high		= 1,
+	.enabled_at_boot	= 0,
+	.init_data		= &gossamer_vmmc3,
+};
+
+static struct platform_device omap_vwlan_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 1,
+	.dev = {
+		.platform_data	= &gossamer_vwlan,
+	},
+};
+
+static struct platform_device gossamer_vmmc2_fixed_device = {
 	.name		= "reg-fixed-voltage",
 	.id		= 2,
 	.dev = {
-		.platform_data	= &encore_vmmc2_fixed_config,
+		.platform_data	= &gossamer_vmmc2_fixed_config,
 	},
 };
 
@@ -455,43 +475,6 @@ static struct omap2_hsmmc_info mmc[] = {
 	{}      /* Terminator */
 };
 
-#if 0
-static int gossamer_hsmmc_card_detect(struct device *dev, int slot)
-{
-	struct omap_mmc_platform_data *mmc = dev->platform_data;
-
-	/* Encore board EVT2 and later has pin high when card is present) */
-	return gpio_get_value_cansleep(mmc->slots[0].switch_pin);
-}
-
-static int gossamer_twl4030_hsmmc_late_init(struct device *dev)
-{
-        int ret = 0;
-        struct platform_device *pdev = container_of(dev,
-                                struct platform_device, dev);
-        struct omap_mmc_platform_data *pdata = dev->platform_data;
-
-	if(is_encore_board_evt2()) {
-		/* Setting MMC1 (external) Card detect */
-		if (pdev->id == 0) {
-			pdata->slots[0].card_detect = gossamer_hsmmc_card_detect;
-		}
-	}
-        return ret;
-}
-
-static __init void gossamer_hsmmc_set_late_init(struct device *dev)
-{
-	struct omap_mmc_platform_data *pdata;
-
-	/* dev can be null if CONFIG_MMC_OMAP_HS is not set */
-	if (!dev)
-		return;
-
-	pdata = dev->platform_data;
-	pdata->init = gossamer_twl4030_hsmmc_late_init;
-}
-#endif
 static int __ref gossamer_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
 {
@@ -502,8 +485,6 @@ static int __ref gossamer_twl_gpio_setup(struct device *dev,
 	mmc[1].gpio_cd = gpio + 0;
 	mmc[0].gpio_cd = gpio + 1;
 	omap2_hsmmc_init(mmc);
-//	for (c = mmc; c->mmc; c++)
-  //              gossamer_hsmmc_set_late_init(c->dev);
 
 	/* link regulators to MMC adapters ... we "know" the
 	 * regulators will be set up only *after* we return.
@@ -511,6 +492,7 @@ static int __ref gossamer_twl_gpio_setup(struct device *dev,
 	gossamer_vmmc1_supply.dev = mmc[1].dev;
 	gossamer_vsim_supply.dev = mmc[1].dev;
 	gossamer_vmmc2_supply.dev = mmc[0].dev;
+	gossamer_vmmc3_supply.dev = mmc[2].dev;
 
 	return 0;
 }
@@ -768,11 +750,6 @@ static struct platform_device android_usb_device = {
 };
 #endif
 
-#define OMAP3630_PRG_I2C2_PULLUPRESX    (1 << 0)
-#define OMAP3630_PRG_I2C1_PULLUPRESX	(1 << 19)
-#define OMAP3630_PRG_SR_PULLUPRESX    (1 << 5)
-#define OMAP36XX_CONTROL_PROG_IO_WKUP1 (OMAP343X_CONTROL_GENERAL_WKUP + 0x020)
-
 static int __init omap_i2c_init(void)
 {
 
@@ -785,52 +762,8 @@ static int __init omap_i2c_init(void)
 		printk(KERN_INFO "Couldn't get ZFORCE_GPIO_FOR_IRQ\n");
 	}
 
-#if 0
-/* Disable OMAP 3630 internal pull-ups for I2Ci */
-	if (cpu_is_omap3630()) {
-		u32 prog_io;
-
-		prog_io = omap_ctrl_readl(OMAP343X_CONTROL_PROG_IO1);
-		/* Program (bit 19)=1 to disable internal pull-up on I2C1 */
-		prog_io |= OMAP3630_PRG_I2C1_PULLUPRESX;
-		/* Program (bit 0)=1 to disable internal pull-up on I2C2 */
-		prog_io |= OMAP3630_PRG_I2C2_PULLUPRESX;
-		omap_ctrl_writel(prog_io, OMAP343X_CONTROL_PROG_IO1);
-
-		prog_io = omap_ctrl_readl(OMAP36XX_CONTROL_PROG_IO_WKUP1);
-		/* Program (bit 5)=1 to disable internal pull-up on I2C4(SR) */
-		prog_io |= OMAP3630_PRG_SR_PULLUPRESX;
-		omap_ctrl_writel(prog_io, OMAP36XX_CONTROL_PROG_IO_WKUP1);
-	}
-#endif
-
 	i2c1_devices = ARRAY_SIZE(gossamer_i2c_bus1_info);
 	i2c2_devices = ARRAY_SIZE(gossamer_i2c_bus2_info);
-# if 0
-    if (is_gossamer_board_evt1a()) {
-#if defined(CONFIG_BATTERY_BQ27510) || defined(CONFIG_BATTERY_BQ27510_MODULE)
-printk("attempting to remove i2c bus info for bq27510 %d\n", i2c2_devices);
-        i2c_remove_board_info("bq27510",  0x55,gossamer_i2c_bus2_info, &i2c2_devices);
-#endif
-#if defined(CONFIG_TOUCHSCREEN_ZFORCE) || defined(CONFIG_TOUCHSCREEN_ZFORCE_MODULE)
-printk("attempting to remove i2c bus info for zforce %d\n",i2c2_devices);
-        i2c_remove_board_info(ZFORCE_NAME, ZFORCE_I2C_SLAVE_ADDRESS,gossamer_i2c_bus2_info, &i2c2_devices);        
-#endif
-    }
-    else {
-#if defined(CONFIG_BATTERY_BQ27510) || defined(CONFIG_BATTERY_BQ27510_MODULE)
-        i2c_remove_board_info("bq27510",  0x55,gossamer_i2c_bus1_info, &i2c1_devices);
-#endif
-    }
-#endif
-
-//	if (is_encore_board_evt1b()) {
-		// The light sensor is not present on gossamerb
-//	}
-//	if (is_encore_board_evt2()) {
-//		gossamer_twldata.keypad->keymap = gossamer_twl4030_keymap_evt2;
-//		gossamer_twldata.keypad->keymapsize = ARRAY_SIZE(gossamer_twl4030_keymap_evt2);
-//	}
 
 	omap_register_i2c_bus(1, 100, gossamer_i2c_bus1_info,
 			i2c1_devices);
@@ -839,7 +772,6 @@ printk("attempting to remove i2c bus info for zforce %d\n",i2c2_devices);
 	return 0;
 }
 
-#if 0
 static int __init wl127x_vio_leakage_fix(void)
 {
 	int ret = 0;
@@ -860,7 +792,6 @@ static int __init wl127x_vio_leakage_fix(void)
 fail:
 	return ret;
 }
-#endif
 
 static void  dump_board_revision(void)
 {
@@ -898,24 +829,35 @@ void __init gpio_leds(struct gpio_led *leds, int nr)
 	platform_device_register(&gpio_leds_device);
 }
 
+static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
+	.irq = OMAP_GPIO_IRQ(GOSSAMER_WIFI_IRQ_GPIO),
+	.board_ref_clock = WL12XX_REFCLOCK_38,
+	/* 2.6.32 has edge triggered falling interrupt */
+	//.platform_quirks = WL12XX_PLATFORM_QUIRK_EDGE_IRQ,
+};
+
+static void gossamer_wifi_init(void)
+{
+
+
+ if (gpio_request(GOSSAMER_WIFI_EN_POW, "wl12xx_en_pow") ||
+ gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1))
+ pr_err("Error initializing the wl12xx en_pow gpio\n");
+
+ if (gpio_request(GOSSAMER_WIFI_IRQ_GPIO, "wl12xx_irq") ||
+ gpio_direction_input(GOSSAMER_WIFI_IRQ_GPIO))
+ pr_err("Error initializing the wl12xx irq gpio\n");
+
+ gossamer_wlan_data.irq = gpio_to_irq(GOSSAMER_WIFI_IRQ_GPIO);
+ if (wl12xx_set_platform_data(&gossamer_wlan_data))
+	pr_err("Error setting wl12xx data\n");
+
+ platform_device_register(&omap_vwlan_device);
+}
+
 
 static void __init omap_gossamer_init(void)
 {
-#if 0
-#define HAPT_ENABLE_GPIO  37
-	/* re enable serial output if it got disabled by hwmod resetting gpio2*/
-	//gpio_set_value(37, 1);
-	if (gpio_request(HAPT_ENABLE_GPIO, "HAPT_ENABLE_GPIO") < 0)
-	{
-		printk(KERN_INFO "Couldn't get HAPT_ENABLE_GPIO\n");
-	}
-	else {
-			printk(KERN_INFO "got HAPT_ENABLE_GPIO\n");
-			gpio_direction_output(HAPT_ENABLE_GPIO, 0);
-			gpio_set_value(HAPT_ENABLE_GPIO, 1);// apply power to touch
-	}
-#endif
-
 	/*we need to have this enable function here to lit up the BL*/
 	dump_board_revision();
 
@@ -932,14 +874,12 @@ static void __init omap_gossamer_init(void)
 
 
 	omap_i2c_init();
-	platform_device_register(&encore_vmmc2_fixed_device);
-	/* Fix to prevent VIO leakage on wl127x */
-//	wl127x_vio_leakage_fix();
-	omap_register_ion();
-	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));
+	platform_device_register(&gossamer_vmmc2_fixed_device);
 
-//	omap_board_config = gossamer_config;
-//	omap_board_config_size = ARRAY_SIZE(gossamer_config);
+	omap_register_ion();
+	gossamer_wifi_init();
+
+	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));
 
 //	msecure_init();
 	omap_serial_init();
@@ -974,6 +914,9 @@ static void __init omap_gossamer_init(void)
 	gpio_leds(debug_leds, ARRAY_SIZE(debug_leds));
 #endif /* CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C */
 
+	/* Fix to prevent VIO leakage on wl127x */
+	wl127x_vio_leakage_fix();
+
     BUG_ON(!cpu_is_omap3630());
 }
 
@@ -1006,22 +949,6 @@ static void __init omap_gossamer_init_early(void)
 #ifdef CONFIG_OMAP_32K_TIMER
 	omap2_gp_clockevent_set_gptimer(1);
 #endif
-#if 0
-	struct omap_hwmod *uart2 = omap_hwmod_lookup("uart2");
-	if (uart2)
-		omap_hwmod_no_setup_reset(uart2);
-	else
-		pr_err("%s: uart2 hwmod lookup failed\n", __func__);
-#endif
-#if 0
-	struct omap_hwmod *gpio2 = omap_hwmod_lookup("gpio2");
-	if (gpio2)
-		omap_hwmod_no_setup_reset(gpio2);
-	else
-		pr_err("%s: gpio2 hwmod lookup failed\n", __func__);
-
-#endif
-
 }
 
 static void __init omap_gossamer_reserve(void)
