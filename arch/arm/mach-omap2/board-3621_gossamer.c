@@ -342,11 +342,6 @@ static struct regulator_consumer_supply gossamer_vmmc2_supply = {
 	.supply		= "vmmc",
 };
 
-static struct regulator_consumer_supply gossamer_vmmc3_supply = {
-	.dev_name	= "omap_hsmmc.2",
-	.supply		= "vmmc",
-};
-
 /* VMMC1 for OMAP VDD_MMC1 (i/o) and MMC1 card */
 static struct regulator_init_data gossamer_vmmc1 = {
 	.constraints = {
@@ -409,32 +404,6 @@ static struct fixed_voltage_config gossamer_vmmc2_fixed_config = {
 	.init_data		= &gossamer_vmmc2,
 };
 
-static struct regulator_init_data gossamer_vmmc3 = {
-	.constraints = {
-		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
-	},
-	.num_consumer_supplies	= 1,
-	.consumer_supplies = &gossamer_vmmc3_supply,
-};
-
-static struct fixed_voltage_config gossamer_vwlan = {
-	.supply_name		= "vwl1271",
-	.microvolts		= 1800000, /* 1.8V */
-	.gpio			= GOSSAMER_WIFI_PMENA_GPIO,
-	.startup_delay		= 70000, /* 70msec */
-	.enable_high		= 1,
-	.enabled_at_boot	= 0,
-	.init_data		= &gossamer_vmmc3,
-};
-
-static struct platform_device omap_vwlan_device = {
-	.name		= "reg-fixed-voltage",
-	.id		= 1,
-	.dev = {
-		.platform_data	= &gossamer_vwlan,
-	},
-};
-
 static struct platform_device gossamer_vmmc2_fixed_device = {
 	.name		= "reg-fixed-voltage",
 	.id		= 2,
@@ -442,7 +411,6 @@ static struct platform_device gossamer_vmmc2_fixed_device = {
 		.platform_data	= &gossamer_vmmc2_fixed_config,
 	},
 };
-
 
 /* The order is reverted in this table so that internal eMMC is presented
  * as first mmc card for compatibility with existing android installations */
@@ -469,16 +437,18 @@ static struct omap2_hsmmc_info mmc[] = {
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_POWER_OFF_CARD,
 		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
+		.ocr_mask	= MMC_VDD_165_195,
 		.nonremovable	= true,
 	},
 
 	{}      /* Terminator */
 };
 
+static void gossamer_wifi_init(void);
+
 static int __ref gossamer_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
 {
-	struct omap2_hsmmc_info *c;
 	/* gpio + 0 is "mmc0_cd" (input/IRQ),
 	 * gpio + 1 is "mmc1_cd" (input/IRQ)
 	 */
@@ -492,7 +462,9 @@ static int __ref gossamer_twl_gpio_setup(struct device *dev,
 	gossamer_vmmc1_supply.dev = mmc[1].dev;
 	gossamer_vsim_supply.dev = mmc[1].dev;
 	gossamer_vmmc2_supply.dev = mmc[0].dev;
-	gossamer_vmmc3_supply.dev = mmc[2].dev;
+
+	/*we call this here because it relies on mmc already being setup. */
+	gossamer_wifi_init();
 
 	return 0;
 }
@@ -829,21 +801,21 @@ void __init gpio_leds(struct gpio_led *leds, int nr)
 	platform_device_register(&gpio_leds_device);
 }
 
-int gossamer_wifi_power(int on)
+
+static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
 {
-	pr_debug("Powering %s wifi", (on ? "on" : "off"));
+	printk(KERN_WARNING"%s: %d\n", __func__, on);
+
 	/* VSYS-WLAN also enabled */
 	gpio_direction_output(GOSSAMER_WIFI_EN_POW, on);
 
 	/* only WLAN_EN is driven during power-up/down */
 	gpio_direction_output(GOSSAMER_WIFI_PMENA_GPIO, on);
 
-
 	return 0;
 }
 
 static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
-	.set_power = &gossamer_wifi_power,
 	.irq = OMAP_GPIO_IRQ(GOSSAMER_WIFI_IRQ_GPIO),
 	.board_ref_clock = WL12XX_REFCLOCK_38,
 	/* 2.6.32 has edge triggered falling interrupt */
@@ -852,21 +824,56 @@ static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
 
 static void gossamer_wifi_init(void)
 {
- if (gpio_request(GOSSAMER_WIFI_EN_POW, "wl12xx_en_pow") ||
- gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1))
- pr_err("Error initializing the wl12xx en_pow gpio\n");
+	struct device *dev;
+	struct omap_mmc_platform_data *pdata;
+	int ret;
 
+	printk(KERN_WARNING"%s: start\n", __func__);
 
- if (gpio_request(GOSSAMER_WIFI_IRQ_GPIO, "wl12xx_irq") ||
- gpio_direction_input(GOSSAMER_WIFI_IRQ_GPIO))
- pr_err("Error initializing the wl12xx irq gpio\n");
+	ret = gpio_request(GOSSAMER_WIFI_PMENA_GPIO, "wifi_pmena");
+	if (ret < 0) {
+		pr_err("%s: can't reserve GPIO: %d\n", __func__,
+						GOSSAMER_WIFI_PMENA_GPIO);
+		goto out;
+	}
+	gpio_direction_output(GOSSAMER_WIFI_PMENA_GPIO, 0);
+	gpio_export(GOSSAMER_WIFI_PMENA_GPIO, true);
 
- gossamer_wlan_data.irq = gpio_to_irq(GOSSAMER_WIFI_IRQ_GPIO);
- if (wl12xx_set_platform_data(&gossamer_wlan_data))
-	pr_err("Error setting wl12xx data\n");
- //disabled in favor of set_power function because there are two power gpios
- //platform_device_register(&omap_vwlan_device);
+	ret = gpio_request(GOSSAMER_WIFI_EN_POW, "wifi_pwen");
+	if (ret < 0) {
+		pr_err("%s: can't reserve GPIO: %d\n", __func__,
+					GOSSAMER_WIFI_EN_POW);
+		goto out;
+	}
+	gpio_direction_output(GOSSAMER_WIFI_EN_POW, 0);
 
+	gpio_export(GOSSAMER_WIFI_EN_POW, true);
+	ret = gpio_request(GOSSAMER_WIFI_IRQ_GPIO, "wifi_irq");
+	if (ret < 0) {
+		printk(KERN_ERR "%s: can't reserve GPIO: %d\n", __func__,
+						GOSSAMER_WIFI_IRQ_GPIO);
+		goto out;
+	}
+	gpio_direction_input(GOSSAMER_WIFI_IRQ_GPIO);
+
+	dev = mmc[2].dev;
+	if (!dev) {
+		pr_err("wl12xx mmc device initialization failed\n");
+		goto out;
+	}
+
+	pdata = dev->platform_data;
+	if (!pdata) {
+		pr_err("Platfrom data of wl12xx device not set\n");
+		goto out;
+	}
+
+	pdata->slots[0].set_power = wl12xx_set_power;
+
+	if (wl12xx_set_platform_data(&gossamer_wlan_data))
+		pr_err("Error setting wl12xx data\n");
+out:
+	return;
 }
 
 
@@ -889,9 +896,8 @@ static void __init omap_gossamer_init(void)
 
 	omap_i2c_init();
 	platform_device_register(&gossamer_vmmc2_fixed_device);
-
 	omap_register_ion();
-	gossamer_wifi_init();
+	
 
 	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));
 
@@ -933,27 +939,6 @@ static void __init omap_gossamer_init(void)
 
     BUG_ON(!cpu_is_omap3630());
 }
-
-#if 0
-// This code is yanked from arch/arm/mach-omap2/prcm.c
-void machine_emergency_restart(void)
-{
-	s16 prcm_offs;
-	u32 l;
-
-	mdelay(1600);
-
-	prcm_offs = OMAP3430_GR_MOD;
-	l = ('B' << 24) | ('M' << 16) | 'h';
-	/* Reserve the first word in scratchpad for communicating
-	* with the boot ROM. A pointer to a data structure
-	* describing the boot process can be stored there,
-	* cf. OMAP34xx TRM, Initialization / Software Booting
-	* Configuration. */
-	omap_writel(l, OMAP343X_SCRATCHPAD + 4);
-	omap3_configure_core_dpll_warmreset();
-}
-#endif
 
 static void __init omap_gossamer_init_early(void)
 {
