@@ -366,7 +366,7 @@ int halDSS_Init(void)
 	printk("enable dsi result: %d\n",tRes);
    // tRes = omap_hwmod_reset(oh_dsi);
 	//	printk("reset dsi result: %d\n",tRes);
-#endif
+
 
 
    oh_dss = omap_hwmod_lookup("dss_core");
@@ -379,19 +379,37 @@ int halDSS_Init(void)
    omap_hwmod_enable_clocks(oh_dss);
    oh_dss = omap_hwmod_lookup("dss_venc");
    omap_hwmod_enable_clocks(oh_dss);
+#endif
 
 
-
+  dss_ick = omap_clk_get_by_name("dss_ick");
+    if (IS_ERR(dss_ick))
+        printk(KERN_ERR "Can't get dss_ick.\n");
     dss1_fck = omap_clk_get_by_name("dss1_alwon_fck");
     if (IS_ERR(dss1_fck))
         printk(KERN_ERR "Can't get dss1_fck.\n");
     dss2_fck = omap_clk_get_by_name("dss2_alwon_fck");
     if (IS_ERR(dss2_fck))
         printk(KERN_ERR "Can't get dss2_fck.\n");
+    dss_54m_fck = omap_clk_get_by_name("dss_tv_fck");
+    if (IS_ERR(dss_54m_fck))
+        printk(KERN_ERR "Can't get dss_tv_fck.\n");
+
+    dss_96m_fck = omap_clk_get_by_name("dss_96m_fck");
+    if (IS_ERR(dss_96m_fck))
+        printk(KERN_ERR "Can't get dss_96m_fck.\n");
+
+    clk_enable(dss_ick);
     clk_enable(dss1_fck);
-    clk_enable(dss2_fck); 
-    printk("dss1_fck = %ld\n", clk_get_rate(dss1_fck));
-    printk("dss2_fck = %ld\n", clk_get_rate(dss2_fck));
+    clk_enable(dss2_fck);
+    clk_enable(dss_54m_fck);
+    clk_enable(dss_96m_fck);  
+ 
+    pr_debug("dss_ick = %ld\n", clk_get_rate(dss_ick));
+    pr_debug("dss1_fck = %ld\n", clk_get_rate(dss1_fck));
+    pr_debug("dss2_fck = %ld\n", clk_get_rate(dss2_fck));
+    pr_debug("dss_54m_fck = %ld\n", clk_get_rate(dss_54m_fck));
+    pr_debug("dss_96m_fck = %ld\n", clk_get_rate(dss_96m_fck));
 
     tRes = halDSS_Reset();
 #if 1
