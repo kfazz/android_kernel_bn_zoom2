@@ -2,7 +2,7 @@
 # Makefile for the OMAP3EP framebuffer driver (for Linux Kernel 2.6)
 #
 
-#EXTRA_CFLAGS += -DDEBUG=1
+EXTRA_CFLAGS += -DDEBUG=1
 
 obj-$(CONFIG_FB_OMAP3EP) += omap3epfb.o
 
