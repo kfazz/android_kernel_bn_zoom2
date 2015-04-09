@@ -24,6 +24,13 @@ config LEDS_CLASS
 
 comment "LED drivers"
 
+config LEDS_AS3676
+	tristate "LED driver for AS3676"
+	depends on LEDS_CLASS && I2C && INPUT 
+	help
+	  This option enables support for austriamicrosystems
+	  AS3676 led controller supporting backlight and RGB.
+
 config LEDS_88PM860X
 	tristate "LED Support for Marvell 88PM860x PMIC"
 	depends on LEDS_CLASS
