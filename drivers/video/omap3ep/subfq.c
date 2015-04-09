@@ -1202,13 +1202,10 @@ int omap3epfb_set_epd_varpar(struct fb_info *info,
 	struct omap3epfb_par *devpar = info->par;
 	devpar->epd_varpar = *par;
 
-#if 0
 	if (par->defio_timeout > 0)
 		fb_deferred_io_set_delay(info, (par->defio_timeout*HZ + 500)/1000);
 	else
 		fb_deferred_io_set_delay(info, -1);
-#endif
-	printk("FIXME: omap3epfb_set_epd_varpar needs to set fbdefio delay");
 	return 0;
 }
 
@@ -1316,7 +1313,7 @@ int omap3epfb_create_screenupdate_workqueue(struct fb_info *info)
 #if defined(CONFIG_FB_OMAP3EP_DRIVE_EPAPER_PANEL_DSS)
 		destroy_workqueue(par->subfq.ss_workq);
 #endif
-		destroy_workqueue(par->subfq.dsp_workq);
+		destroy_workqueue(par->subfq.dspck_workq);
 		return -ENOMEM;
 	}
 #endif

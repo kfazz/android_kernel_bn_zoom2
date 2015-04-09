@@ -129,7 +129,12 @@ static int fb_deferred_io_mkwrite(struct vm_area_struct *vma,
 page_already_added:
 	mutex_unlock(&fbdefio->lock);
 
-	/* come back after delay to process the deferred IO */
+	/*
+	 * If auto update enabled, come back after delay to process the
+	 * deferred IO. Otherwise leave touched pages writable, but
+	 * don't register a delayed workqueue.
+	 */
+	if (fbdefio->delay > 0)
 	schedule_delayed_work(&info->deferred_work, fbdefio->delay);
 	return VM_FAULT_LOCKED;
 }
@@ -159,6 +164,41 @@ static int fb_deferred_io_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	vma->vm_private_data = info;
 	return 0;
 }
+
+void fb_deferred_io_set_delay(struct fb_info *info, long delay)
+{
+	struct fb_deferred_io *fbdefio = info->fbdefio;
+
+	mutex_lock(&fbdefio->lock);
+
+	/* when deferred I/O is re-enabled, pages
+	 * must be marked clean so that the workqueue
+	 * could be registered with the next page fault
+	 */
+	if ((fbdefio->delay<=0) && (delay>0)) {
+		struct list_head *node, *next;
+		struct page *cur;
+		struct fb_deferred_io *fbdefio = info->fbdefio;
+
+		/* here we mkclean the pages */
+		list_for_each_entry(cur, &fbdefio->pagelist, lru) {
+			lock_page(cur);
+			page_mkclean(cur);
+			unlock_page(cur);
+		}
+
+		/* clear the list */
+		list_for_each_safe(node, next, &fbdefio->pagelist) {
+			list_del(node);
+		}
+	}
+
+	/* inform deferred I/O about the new delay */
+	fbdefio->delay = delay;
+
+	mutex_unlock(&fbdefio->lock);
+}
+EXPORT_SYMBOL_GPL(fb_deferred_io_set_delay);
 
 /* workqueue callback */
 static void fb_deferred_io_work(struct work_struct *work)
