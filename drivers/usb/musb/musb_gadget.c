@@ -1947,8 +1947,10 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 
 	otg_set_peripheral(musb->xceiv, &musb->g);
 
-	if (!is_otg_enabled(musb))
+		if (!is_otg_enabled(musb) && 
+			musb->softconnect) {
 		musb_start(musb);
+	}
 
 	spin_unlock_irqrestore(&musb->lock, flags);
 

@@ -961,6 +961,11 @@ static void musb_generic_disable(struct musb *musb)
 	/* off */
 	musb_writeb(mbase, MUSB_DEVCTL, 0);
 
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER)
+	// For Encore disable and enable HS
+	musb_writeb(mbase, MUSB_POWER, MUSB_POWER_HSENAB);
+#endif
+
 	/*  flush pending interrupts */
 	temp = musb_readb(mbase, MUSB_INTRUSB);
 	temp = musb_readw(mbase, MUSB_INTRTX);

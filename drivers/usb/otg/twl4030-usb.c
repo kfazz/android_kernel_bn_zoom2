@@ -456,13 +456,15 @@ static void twl4030_phy_resume(struct twl4030_usb *twl)
 
 static int twl4030_usb_ldo_init(struct twl4030_usb *twl)
 {
+	const uint8_t key1 = twl_rev_is_tps65921() ? 0xFC : 0xC0;
+	const uint8_t key2 = twl_rev_is_tps65921() ? 0x96 : 0x0C;
 	/* Enable writing to power configuration registers */
 	twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER,
-			TWL4030_PM_MASTER_KEY_CFG1,
+			key1,
 			TWL4030_PM_MASTER_PROTECT_KEY);
 
 	twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER,
-			TWL4030_PM_MASTER_KEY_CFG2,
+			key2,
 			TWL4030_PM_MASTER_PROTECT_KEY);
 
 	/* Keep VUSB3V1 LDO in sleep state until VBUS/ID change detected*/
