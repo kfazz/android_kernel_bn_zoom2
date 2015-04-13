@@ -572,10 +572,11 @@ int omap3ep_user_update(struct fb_info *info, struct omap3epfb_update_area *p)
 	start_time = omap3ep_ktime_to_ms();
 	DEBUG_LOG(DEBUG_LEVEL4, "[%u ms] Start user_update\n", start_time);
 
-	// If EPD is disabled, do nothing
+	// If pageflip is enabled, do nothing
 	if (par->pgflip_refresh == 1)
 	{
 		// Tell the caller not to update.
+		DEBUG_REGION(DEBUG_LEVEL3, p,"update DISABLED (pageflip on) = ");
 		return 0;
 	}
 
