@@ -49,6 +49,23 @@
 
 /* Register defines */
 
+
+#define FUNC_CTRL			0x04
+#define FUNC_CTRL_SET			0x05
+#define FUNC_CTRL_CLR			0x06
+#define FUNC_CTRL_SUSPENDM		(1 << 6)
+#define FUNC_CTRL_RESET			(1 << 5)
+#define FUNC_CTRL_OPMODE_MASK		(3 << 3) /* bits 3 and 4 */
+#define FUNC_CTRL_OPMODE_NORMAL		(0 << 3)
+#define FUNC_CTRL_OPMODE_NONDRIVING	(1 << 3)
+#define FUNC_CTRL_OPMODE_DISABLE_BIT_NRZI	(2 << 3)
+#define FUNC_CTRL_TERMSELECT		(1 << 2)
+#define FUNC_CTRL_XCVRSELECT_MASK	(3 << 0) /* bits 0 and 1 */
+#define FUNC_CTRL_XCVRSELECT_HS		(0 << 0)
+#define FUNC_CTRL_XCVRSELECT_FS		(1 << 0)
+#define FUNC_CTRL_XCVRSELECT_LS		(2 << 0)
+#define FUNC_CTRL_XCVRSELECT_FS4LS	(3 << 0)
+
 #define MCPC_CTRL			0x30
 #define MCPC_CTRL_RTSOL			(1 << 7)
 #define MCPC_CTRL_EXTSWR		(1 << 6)
@@ -415,7 +432,23 @@ static void twl4030_phy_power(struct twl4030_usb *twl, int on)
 				  twl4030_usb_read(twl, PHY_CLK_CTRL) |
 					(PHY_CLK_CTRL_CLOCKGATING_EN |
 						PHY_CLK_CTRL_CLK32K_EN));
+
+                twl4030_i2c_access(twl, 1);
+                twl4030_usb_set_bits(twl, FUNC_CTRL, FUNC_CTRL_SUSPENDM);
+                twl4030_usb_clear_bits(twl, FUNC_CTRL, FUNC_CTRL_OPMODE_MASK );
+                twl4030_i2c_access(twl, 0);
 	} else {
+                __twl4030_phy_power(twl, 1);
+                twl4030_i2c_access(twl, 1);
+                twl4030_usb_set_bits(twl, FUNC_CTRL, FUNC_CTRL_SUSPENDM);
+
+                twl4030_usb_clear_bits(twl, FUNC_CTRL,
+                        (FUNC_CTRL_OPMODE_MASK & ~ FUNC_CTRL_OPMODE_NONDRIVING) );
+
+                twl4030_usb_set_bits(twl, FUNC_CTRL, FUNC_CTRL_OPMODE_NONDRIVING);
+                twl4030_usb_clear_bits(twl, FUNC_CTRL, FUNC_CTRL_SUSPENDM);
+
+                twl4030_i2c_access(twl, 0);
 		__twl4030_phy_power(twl, 0);
 		regulator_disable(twl->usb1v5);
 		regulator_disable(twl->usb1v8);
@@ -427,6 +460,11 @@ static void twl4030_phy_suspend(struct twl4030_usb *twl, int controller_off)
 {
 	if (twl->asleep)
 		return;
+
+	if (twl->otg.gadget) {
+        dev_dbg(twl->dev, "notifying gadget of disconnect\n");
+		usb_gadget_disconnect(twl->otg.gadget);
+    }
 
 	twl4030_phy_power(twl, 0);
 	twl->asleep = 1;
@@ -451,6 +489,10 @@ static void twl4030_phy_resume(struct twl4030_usb *twl)
 		return;
 	__twl4030_phy_resume(twl);
 	twl->asleep = 0;
+    if (twl->otg.gadget) {
+        dev_dbg(twl->dev, "notifying gadget of connect\n");
+        usb_gadget_connect(twl->otg.gadget);
+    }
 	dev_dbg(twl->dev, "%s\n", __func__);
 }
 
@@ -534,31 +576,13 @@ static DEVICE_ATTR(vbus, 0444, twl4030_usb_vbus_show, NULL);
 static irqreturn_t twl4030_usb_irq(int irq, void *_twl)
 {
 	struct twl4030_usb *twl = _twl;
-	int status;
-
-	status = twl4030_usb_linkstat(twl);
-	if (status >= 0) {
-		/* FIXME add a set_power() method so that B-devices can
-		 * configure the charger appropriately.  It's not always
-		 * correct to consume VBUS power, and how much current to
-		 * consume is a function of the USB configuration chosen
-		 * by the host.
-		 *
-		 * REVISIT usb_gadget_vbus_connect(...) as needed, ditto
-		 * its disconnect() sibling, when changing to/from the
-		 * USB_LINK_VBUS state.  musb_hdrc won't care until it
-		 * starts to handle softconnect right.
+	wake_lock(&twl->irq_wake_lock);
+	/*
+	 * Delay the work at boot time to allow regulators
+	 * and the rest of USB code to init before handling
+	 * the IRQ
 		 */
-		if (status == USB_EVENT_NONE)
-			twl4030_phy_suspend(twl, 0);
-		else
-			twl4030_phy_resume(twl);
-
-		atomic_notifier_call_chain(&twl->otg.notifier, status,
-				twl->otg.gadget);
-	}
-	sysfs_notify(&twl->dev->kobj, NULL, "vbus");
-
+	schedule_delayed_work(&twl->dwork, bottom_timeout * HZ);
 	return IRQ_HANDLED;
 }
 
@@ -572,8 +596,8 @@ static void twl4030_usb_phy_init(struct twl4030_usb *twl)
 			__twl4030_phy_power(twl, 0);
 			twl->asleep = 1;
 		} else {
-			__twl4030_phy_resume(twl);
-			twl->asleep = 0;
+			twl4030_phy_suspend(twl, 0);
+			twl4030_usb_irq(twl->irq, twl);
 		}
 
 		atomic_notifier_call_chain(&twl->otg.notifier, status,
@@ -584,13 +608,16 @@ static void twl4030_usb_phy_init(struct twl4030_usb *twl)
 
 static int twl4030_set_suspend(struct otg_transceiver *x, int suspend)
 {
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER)
+#else
 	struct twl4030_usb *twl = xceiv_to_twl(x);
 
+	// For Gossamer this is done on the VBUS interrupt
 	if (suspend)
 		twl4030_phy_suspend(twl, 1);
 	else
 		twl4030_phy_resume(twl);
-
+#endif
 	return 0;
 }
 
@@ -707,8 +734,10 @@ static void twl4030_usb_irq_work(struct work_struct *work)
 
 	switch (status) {
 	//FIXME what about ID?
-	case USB_EVENT_VBUS:
 	case USB_EVENT_ID:
+		dev_dbg(twl->dev,"linkstat returned USB_EVENT_ID");
+		/*Fall through */
+	case USB_EVENT_VBUS:
  		twl4030_phy_resume(twl);
 		break;
 	case USB_EVENT_NONE:
@@ -724,7 +753,7 @@ static void twl4030_usb_irq_work(struct work_struct *work)
     }
 
 #if defined(CONFIG_TWL4030_BCI_BATTERY)
-    twl4030charger_usb_en(status == USB_LINK_VBUS);
+    twl4030charger_usb_en(status == USB_EVENT_VBUS);
 #endif
 
 #if defined(CONFIG_REGULATOR_BQ24073) || \
@@ -753,7 +782,7 @@ static void twl4030_usb_irq_work(struct work_struct *work)
 	if (unlikely(bottom_timeout != 0))
 		bottom_timeout = 0;
 
-    if (USB_EVENT_VBUS != status) {
+    if (USB_EVENT_VBUS != status) { //FIXME should this be if (USB_EVENT_NONE==status)?
         // Last thing we do is unlock the wakelock if no link detected.
         wake_unlock(&twl->irq_wake_lock);
     }
