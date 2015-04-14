@@ -460,11 +460,12 @@ static void twl4030_phy_suspend(struct twl4030_usb *twl, int controller_off)
 {
 	if (twl->asleep)
 		return;
-
+#if 0
 	if (twl->otg.gadget) {
         dev_dbg(twl->dev, "notifying gadget of disconnect\n");
 		usb_gadget_disconnect(twl->otg.gadget);
     }
+#endif
 
 	twl4030_phy_power(twl, 0);
 	twl->asleep = 1;
@@ -489,10 +490,12 @@ static void twl4030_phy_resume(struct twl4030_usb *twl)
 		return;
 	__twl4030_phy_resume(twl);
 	twl->asleep = 0;
+#if 0
     if (twl->otg.gadget) {
         dev_dbg(twl->dev, "notifying gadget of connect\n");
         usb_gadget_connect(twl->otg.gadget);
     }
+#endif
 	dev_dbg(twl->dev, "%s\n", __func__);
 }
 
