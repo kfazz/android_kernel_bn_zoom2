@@ -780,6 +780,9 @@ static void twl4030_usb_irq_work(struct work_struct *work)
 	}
 #endif /* CONFIG_REGULATOR_BQ24073 */
 
+	atomic_notifier_call_chain(&twl->otg.notifier, status,
+				twl->otg.gadget);
+
 	sysfs_notify(&twl->dev->kobj, NULL, "vbus");
 
 	if (unlikely(bottom_timeout != 0))
