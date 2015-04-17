@@ -141,6 +141,9 @@ void omap3epdss_set_border_color(struct fb_info *info)
 	         (val == EPD_BORDER_WHITE) ? "EPD_BORDER_WHITE" : (val == EPD_BORDER_BLACK) ?
 	         "EPD_BORDER_BLACK" : "UNKNOWN_VAL");
 
+	gpio_request(BORDER_CTRL0_GPIO, "border0");
+	gpio_request(BORDER_CTRL1_GPIO, "border1");
+
 	switch (val) {
 		case EPD_BORDER_FLOATING:
 			gpio_direction_output(BORDER_CTRL0_GPIO, 0);
@@ -157,6 +160,8 @@ void omap3epdss_set_border_color(struct fb_info *info)
 		default:
 			break;
 	}
+	gpio_free(BORDER_CTRL0_GPIO);
+	gpio_free(BORDER_CTRL1_GPIO);
 }
 #endif
 
