@@ -599,8 +599,10 @@ static void twl4030_usb_phy_init(struct twl4030_usb *twl)
 			__twl4030_phy_power(twl, 0);
 			twl->asleep = 1;
 		} else {
-			twl4030_phy_suspend(twl, 0);
-			twl4030_usb_irq(twl->irq, twl);
+			__twl4030_phy_resume(twl);
+			twl->asleep = 0;
+			//twl4030_phy_suspend(twl, 0);
+			//twl4030_usb_irq(twl->irq, twl);
 		}
 
 		atomic_notifier_call_chain(&twl->otg.notifier, status,
