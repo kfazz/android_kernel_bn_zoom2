@@ -17,6 +17,7 @@
 #include <linux/hrtimer.h>
 #include <linux/slab.h>
 #include <linux/input.h>
+#include <linux/input/mt.h>
 #include <linux/interrupt.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
@@ -94,6 +95,20 @@
 #define I2C_M_WR                        0
 
 #define ZF_SETCONFIG_DUALTOUCH 0x00000001
+
+#define ZFORCE_MAX_AREA			0xff
+
+struct zforce_point {
+	int coord_x;
+	int coord_y;
+	int state;
+	int id;
+	int area_major;
+	int area_minor;
+	int orientation;
+	int pressure;
+	int prblty;
+};
 
 DEFINE_MUTEX(zForce_sysfs_mutex);
 
@@ -1007,12 +1022,13 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 {
 	u16 x,y;
 	u8  status;
-	int count;
+	int count,i,num;
 	u8 id = 0;
 	u8 state = 0;
 #ifdef ZF_USE_DEBUG
 	int retval = 0;
 #endif
+	struct zforce_point point;
 
 	// Request the next event ASAP.
 	if (major == 1)
@@ -1053,10 +1069,81 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 		printk("\n");
 	}
 	#endif
-	if (count != 1)
-	{
-		if (zf_debug >= 1) dev_info(&tsc->client->dev, "Invalid number of coordinates: %d\n", count);
+	if (count > ZF_NUM_FINGER_SUPPORT) {
+		printk("to many coordinates %d, expected max %d\n",
+			 count, ZF_NUM_FINGER_SUPPORT);
+		count = ZF_NUM_FINGER_SUPPORT;
 	}
+	for (i = 0; i < count; i++) {
+		point.coord_x =
+			payload[touch_data_size * i + 2] << 8 | payload[touch_data_size * i + 1];
+		point.coord_y =
+			payload[touch_data_size * i + 4] << 8 | payload[touch_data_size * i + 3];
+#if 0
+		if (point.coord_x > pdata->x_max ||
+		    point.coord_y > pdata->y_max) {
+			printk("coordinates (%d,%d) invalid\n",
+				point.coord_x, point.coord_y);
+			point.coord_x = point.coord_y = 0;
+		}
+#endif
+
+		point.state = (u8)((major <= 3) ? ((payload[5+i*touch_data_size]&0xC0)>>6) :
+		                                  (payload[5+i*touch_data_size]&0x03));
+		point.id = (u8)((major <= 3) ? ((payload[5+i*touch_data_size]&0x3C)>>2) :
+		                                  ((payload[5+i*touch_data_size]&0xFC)>>2));
+
+		/* determine touch major, minor and orientation */
+		point.area_major = max(payload[6+i*touch_data_size],
+					  payload[7+i*touch_data_size]);
+		point.area_minor = min(payload[6+i*touch_data_size],
+					  payload[7+i*touch_data_size]);
+		point.orientation = payload[6+i*touch_data_size] > payload[7+i*touch_data_size];
+
+		point.pressure = payload[8+i*touch_data_size];
+		point.prblty = payload[9+i*touch_data_size];
+
+#if 0
+		dev_dbg(&client->dev, "point %d/%d: state %d, id %d, pressure %d, prblty %d, x %d, y %d, amajor %d, aminor %d, ori %d\n",
+			i, count, point.state, point.id,
+			point.pressure, point.prblty,
+			point.coord_x, point.coord_y,
+			point.area_major, point.area_minor,
+			point.orientation);
+#endif
+
+		/* the zforce id starts with "1", so needs to be decreased */
+		input_mt_slot(tsc->input, point.id - 1);
+
+		input_mt_report_slot_state(tsc->input, MT_TOOL_FINGER,
+						point.state != STATE_UP);
+
+		if (point.state != STATE_UP) {
+			input_report_abs(tsc->input, ABS_MT_POSITION_X,
+					 point.coord_x);
+			input_report_abs(tsc->input, ABS_MT_POSITION_Y,
+					 point.coord_y);
+			input_report_abs(tsc->input, ABS_MT_TOUCH_MAJOR,
+					 point.area_major);
+			input_report_abs(tsc->input, ABS_MT_TOUCH_MINOR,
+					 point.area_minor);
+			input_report_abs(tsc->input, ABS_MT_ORIENTATION,
+					 point.orientation);
+			num++;
+		}
+	}
+
+	//input_mt_sync_frame(tsc->input);
+	//suggested as a workaround for no input_sync_mt_frame on some mailinglist or other*/
+	input_mt_report_pointer_emulation(tsc->input,false);
+
+	input_mt_report_finger_count(tsc->input, num);
+
+	input_sync(tsc->input);
+
+	return (count * touch_data_size) + 1;
+
+#if 0
 	memcpy(&x, &payload[1], sizeof(u16));
 	memcpy(&y, &payload[3], sizeof(u16));
 	status = payload[5];
@@ -1113,6 +1200,7 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 			break;
 	}
 	input_sync(tsc->input);
+#endif
 	return (count * touch_data_size) + 1;
 }
 
@@ -1483,10 +1571,11 @@ static void zforce_touch_hw_init(int resume)
 	   pulling in the structures defined in omap-serial.c
 	   would bloat the driver without reason */
 	/* Reset UART fifos */
+#if 0
 	v = omap_readb(OMAP_UART2_BASE + 0x08);
 	v |= 0x06;
 	omap_writeb(v, OMAP_UART2_BASE + 0x08);
-
+#endif
 	mdelay(50);
 }
 //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-==-=-=-
@@ -2328,13 +2417,19 @@ static int zforce_probe(struct i2c_client *client,
 	set_bit(EV_KEY, input_dev->evbit);
 	set_bit(EV_SYN, input_dev->evbit);
 	set_bit(EV_ABS, input_dev->evbit);
-	set_bit(BTN_TOUCH, input_dev->keybit);
+	//set_bit(BTN_TOUCH, input_dev->keybit);
 
-	input_set_abs_params(input_dev, ABS_X, 0, pdata->width, 0, 0);
-	input_set_abs_params(input_dev, ABS_Y, 0, pdata->height, 0, 0);
+	//input_set_abs_params(input_dev, ABS_X, 0, pdata->width, 0, 0);
+	//input_set_abs_params(input_dev, ABS_Y, 0, pdata->height, 0, 0);
 
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, pdata->width, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, pdata->height, 0, 0);
+
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0,ZFORCE_MAX_AREA, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR, 0,ZFORCE_MAX_AREA, 0, 0);
+
+	input_set_abs_params(input_dev, ABS_MT_ORIENTATION, 0, 1, 0, 0);
+	input_mt_init_slots(input_dev, ZF_NUM_FINGER_SUPPORT);
 
 	tsc->irq = client->irq;
 	tsc->err_cnt = 0;
