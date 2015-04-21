@@ -21,12 +21,10 @@
 #define zforce_error(f, a...)		pr_err("%s:" f,  __func__ , ## a)
 #define zforce_alert(f, a...)		pr_alert("%s:" f,  __func__ , ## a)
 
+//Enable the following define in order to collect and show touch data
 //#define ZF_USE_DEBUG
-#ifdef ZF_USE_DEBUG
-	#define zforce_debug(f, a...)	pr_alert("%s:" f,  __func__ , ## a)
-#else
-	#define zforce_debug(f, a...)
-#endif /* ZF_USE_DEBUG */
+
+#define zforce_debug(f, a...)	if (zf_debug != 0) pr_alert("%s:" f,  __func__ , ## a)
 
 struct zforce_platform_data {
 	u32 width;
