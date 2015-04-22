@@ -202,6 +202,7 @@ struct twl4030_usb {
 	u8			asleep;
 	bool			irq_enabled;
 	struct delayed_work	dwork;
+	struct delayed_work	id_workaround_work;
 	struct wake_lock irq_wake_lock;
 };
 
@@ -579,6 +580,7 @@ static DEVICE_ATTR(vbus, 0444, twl4030_usb_vbus_show, NULL);
 static irqreturn_t twl4030_usb_irq(int irq, void *_twl)
 {
 	struct twl4030_usb *twl = _twl;
+	int status;
 	wake_lock(&twl->irq_wake_lock);
 	/*
 	 * Delay the work at boot time to allow regulators
@@ -603,6 +605,10 @@ static void twl4030_usb_phy_init(struct twl4030_usb *twl)
 			twl->asleep = 0;
 			//twl4030_phy_suspend(twl, 0);
 			//twl4030_usb_irq(twl->irq, twl);
+			if (status == USB_EVENT_ID) {
+				cancel_delayed_work(&twl->id_workaround_work);
+				schedule_delayed_work(&twl->id_workaround_work, HZ);
+			}
 		}
 
 		atomic_notifier_call_chain(&twl->otg.notifier, status,
@@ -740,6 +746,8 @@ static void twl4030_usb_irq_work(struct work_struct *work)
 	switch (status) {
 	//FIXME what about ID?
 	case USB_EVENT_ID:
+		cancel_delayed_work(&twl->id_workaround_work);
+		schedule_delayed_work(&twl->id_workaround_work, HZ);
 		dev_dbg(twl->dev,"linkstat returned USB_EVENT_ID");
 		/*Fall through */
 	case USB_EVENT_VBUS:
@@ -796,6 +804,37 @@ static void twl4030_usb_irq_work(struct work_struct *work)
     }
 }
 
+static void twl4030_id_workaround_work(struct work_struct *work)
+{
+	struct twl4030_usb *twl = container_of(work, struct twl4030_usb,
+		id_workaround_work.work);
+	struct otg_transceiver x = twl->otg;
+	int status;
+
+	/* get link status */
+	status = twl4030_usb_linkstat(twl);
+
+	switch (status) {
+	case USB_EVENT_ID:
+		twl4030_usb_bq_charge_disable(twl);
+		cancel_delayed_work(&twl->id_workaround_work);
+		schedule_delayed_work(&twl->id_workaround_work, HZ);
+		dev_dbg(twl->dev,"twl4030_id_workaround_work: linkstat returned USB_EVENT_ID");
+		break;
+	default:
+
+		twl4030_phy_power(twl,0);
+		twl4030_usb_bq_charge_disable(twl);
+		twl4030_usb_phy_init(twl);
+
+		/* state is not ID, so fake an interrupt */
+		twl4030_usb_irq(0,twl);
+		break;
+	}
+
+}
+
+
 static int __devinit twl4030_usb_probe(struct platform_device *pdev)
 {
 	struct twl4030_usb_data *pdata = pdev->dev.platform_data;
@@ -826,6 +865,7 @@ static int __devinit twl4030_usb_probe(struct platform_device *pdev)
 
 	wake_lock_init(&twl->irq_wake_lock, WAKE_LOCK_SUSPEND, "twl4030-irq");
 	INIT_DELAYED_WORK(&twl->dwork, twl4030_usb_irq_work);
+	INIT_DELAYED_WORK(&twl->id_workaround_work, twl4030_id_workaround_work);
 
 	/* init spinlock for workqueue */
 	spin_lock_init(&twl->lock);
@@ -877,7 +917,9 @@ static int __exit twl4030_usb_remove(struct platform_device *pdev)
 	struct twl4030_usb *twl = platform_get_drvdata(pdev);
 	int val;
 
+	cancel_delayed_work(&twl->id_workaround_work);
 	cancel_delayed_work_sync(&twl->dwork);
+
 	free_irq(twl->irq, twl);
 	device_remove_file(twl->dev, &dev_attr_vbus);
 
