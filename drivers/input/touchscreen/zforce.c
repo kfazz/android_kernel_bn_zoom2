@@ -1123,12 +1123,14 @@ static int process_touch_event(struct zforce *tsc, u8* payload)
 					 point.coord_x);
 			input_report_abs(tsc->input, ABS_MT_POSITION_Y,
 					 point.coord_y);
+#if 0
 			input_report_abs(tsc->input, ABS_MT_TOUCH_MAJOR,
 					 point.area_major);
 			input_report_abs(tsc->input, ABS_MT_TOUCH_MINOR,
 					 point.area_minor);
 			input_report_abs(tsc->input, ABS_MT_ORIENTATION,
 					 point.orientation);
+#endif
 			num++;
 		}
 	}
@@ -2425,10 +2427,12 @@ static int zforce_probe(struct i2c_client *client,
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, pdata->width, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, pdata->height, 0, 0);
 
+#if 0
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0,ZFORCE_MAX_AREA, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR, 0,ZFORCE_MAX_AREA, 0, 0);
-
 	input_set_abs_params(input_dev, ABS_MT_ORIENTATION, 0, 1, 0, 0);
+#endif
+
 	input_mt_init_slots(input_dev, ZF_NUM_FINGER_SUPPORT);
 
 	tsc->irq = client->irq;
