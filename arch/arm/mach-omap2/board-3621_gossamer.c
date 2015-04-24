@@ -727,11 +727,13 @@ static int __init omap_i2c_init(void)
 	int i2c1_devices;
 	int i2c2_devices;
 
+#if defined(CONFIG_TOUCHSCREEN_ZFORCE) || defined(CONFIG_TOUCHSCREEN_ZFORCE_MODULE)
 	/*Request zforce irq gpio so clocks get enabled */
 	if (gpio_request(ZFORCE_GPIO_FOR_IRQ, "ZFORCE_GPIO_FOR_IRQ") < 0)
 	{
 		printk(KERN_INFO "Couldn't get ZFORCE_GPIO_FOR_IRQ\n");
 	}
+#endif
 
 	i2c1_devices = ARRAY_SIZE(gossamer_i2c_bus1_info);
 	i2c2_devices = ARRAY_SIZE(gossamer_i2c_bus2_info);
@@ -805,12 +807,16 @@ static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
 {
 	printk(KERN_WARNING"%s: %d\n", __func__, on);
 
-	/* VSYS-WLAN also enabled */
-	gpio_direction_output(GOSSAMER_WIFI_EN_POW, on);
-
-	/* only WLAN_EN is driven during power-up/down */
-	gpio_direction_output(GOSSAMER_WIFI_PMENA_GPIO, on);
-
+	if (on) {
+		gpio_set_value(GOSSAMER_WIFI_EN_POW, on);
+		udelay(800);
+		gpio_set_value(GOSSAMER_WIFI_PMENA_GPIO, on);
+		mdelay(70);
+	}
+	else {
+		gpio_set_value(GOSSAMER_WIFI_PMENA_GPIO, on);
+		gpio_set_value(GOSSAMER_WIFI_EN_POW, on);
+	}
 	return 0;
 }
 
