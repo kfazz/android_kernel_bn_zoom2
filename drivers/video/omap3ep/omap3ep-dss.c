@@ -168,12 +168,45 @@ void omap3epdss_set_border_color(struct fb_info *info)
 static void *dss_intparnsf;
 static void *dss_intparfd;
 
+static vsync_callback_t vsync_cb_handler; static void *vsync_cb_arg;
+
+int register_vsync_cb(vsync_callback_t handler, void *arg, int idx) {
+	if ((vsync_cb_handler == NULL) && (vsync_cb_arg == NULL)) {
+		vsync_cb_arg = arg;
+		vsync_cb_handler = handler;
+	} else {
+		return -EEXIST;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(register_vsync_cb);
+
+int unregister_vsync_cb(vsync_callback_t handler, void *arg, int idx)
+{
+	if ((vsync_cb_handler == handler) && (vsync_cb_arg == arg)) {
+		vsync_cb_handler = NULL;
+		vsync_cb_arg = NULL;
+	} else {
+		return -ENXIO;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(unregister_vsync_cb);
+
 void line1_isr(void)
 {
 	BUG_ON( halDSS_check_go() ); //we assume that LCDGO is 0 and we can change settings
 	BUG_ON(!dss_intparnsf);
 	omap3epfb_newsubframe_inthandler(dss_intparnsf);
 
+}
+
+void vsync_isr(void)
+{
+	if (vsync_cb_handler)
+		vsync_cb_handler(vsync_cb_arg);
 }
 
 void framedone_isr(void)

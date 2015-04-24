@@ -108,13 +108,6 @@ irqreturn_t dss_isr(int irq, void *dontcare)
 		printk(KERN_ERR "%s: IRQSTATUS=%08x\n", __func__, dispc_irqstatus);
 	}
 
-/*        if (dispc_irqstatus & VSYNC_MASK)
-        {
-            dispc_irqstatus &= ~VSYNC_MASK;
-
-            vsync_isr();
-        }        
-*/
         if (dispc_irqstatus & FRAMEDONE_MASK)
         {
             dispc_irqstatus &= ~FRAMEDONE_MASK;
@@ -126,12 +119,15 @@ irqreturn_t dss_isr(int irq, void *dontcare)
             dispc_irqstatus &= ~VSYNC_MASK;
 
 	    if (REG32_TEST_BIT(DISPC_CONTROL_OFFSET + DISPC_BASE, LCDENABLE_BITPOS)) {
-		    if (!halDSS_check_go())
+		    if (!halDSS_check_go()) {
 			line1_isr();
+			vsync_isr();
+		    }
 		    else
 			printk(KERN_ERR "DSS: too long IRQs off!\n");
 	    } else if (frame_done_fired) {
 		framedone_isr();
+		vsync_isr();
                 frame_done_fired = 0;
 	    }
         }

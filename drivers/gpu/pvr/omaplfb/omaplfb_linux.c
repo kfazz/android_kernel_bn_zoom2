@@ -54,6 +54,10 @@
 #include <linux/omapfb.h>
 #endif
 
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER)
+#include "../../../video/omap3ep/omap3ep-dss.h"
+#endif
+
 #include <linux/mutex.h>
 
 #if defined(PVR_OMAPLFB_DRM_FB)
@@ -630,6 +634,37 @@ OMAPLFB_BOOL OMAPLFBSetUpdateMode(OMAPLFB_DEVINFO *psDevInfo, OMAPLFB_UPDATE_MOD
 
 OMAPLFB_BOOL OMAPLFBWaitForVSync(OMAPLFB_DEVINFO *psDevInfo)
 {
+#if defined CONFIG_MACH_OMAP3621_GOSSAMER
+#define VSYNC_TIMEOUT_MS 32
+#define VSYNC_TIMEOUT_JIFFIES (VSYNC_TIMEOUT_MS * HZ / 1000)
+      int r;
+      void grpx_irq_wait_handler(void *data)
+      {
+          complete((struct completion *)data);
+      }
+
+      DECLARE_COMPLETION_ONSTACK(completion);
+
+      if (register_vsync_cb((vsync_callback_t)grpx_irq_wait_handler, &completion, psDevInfo->uiFBDevID) != 0)
+      {
+          printk (KERN_WARNING DRIVER_PREFIX ": Failed to register for vsync call back\n");
+          return OMAPLFB_FALSE;
+      }
+
+      r = wait_for_completion_interruptible_timeout(&completion, VSYNC_TIMEOUT_JIFFIES);
+
+      if (unregister_vsync_cb((vsync_callback_t)grpx_irq_wait_handler , &completion, psDevInfo->uiFBDevID) != 0)
+      {
+          printk (KERN_WARNING DRIVER_PREFIX ": Failed to un-register for vsync call back\n");
+          return OMAPLFB_FALSE;
+      }
+
+      if (r == 0 ) {
+          //printk("omaplfb timed out waiting for vsync\n");
+          return OMAPLFB_FALSE;
+      }
+	return OMAPLFB_TRUE;
+#else
 #if defined PLAT_TI81xx
       int r;
       void grpx_irq_wait_handler(void *data)
@@ -682,6 +717,7 @@ OMAPLFB_BOOL OMAPLFBWaitForVSync(OMAPLFB_DEVINFO *psDevInfo)
 	}
 
 	return OMAPLFB_TRUE;
+#endif
 #endif
 #endif
 }

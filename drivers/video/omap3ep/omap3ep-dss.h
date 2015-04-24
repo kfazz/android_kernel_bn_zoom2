@@ -40,6 +40,10 @@ extern void omap3epdss_start(struct fb_info *info);
 extern void omap3epdss_request_stop(void);
 extern void omap3epdss_stop(struct fb_info *info);
 
+/* used by SGX OMAPLFB drvier */
+typedef void (*vsync_callback_t)(void *arg); int
+register_vsync_cb(vsync_callback_t handler, void *arg, int idx); int
+unregister_vsync_cb(vsync_callback_t handler, void *arg, int idx);
 
 extern void omap3epdss_request_video_bufchange(dma_addr_t addr);
 
