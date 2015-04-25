@@ -996,6 +996,16 @@ static void __init omap_gossamer_init(void)
 	gpio_leds(debug_leds, ARRAY_SIZE(debug_leds));
 #endif /* CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C */
 
+	/* link fixed voltrage regulator to vmmc3 */
+	encore_vmmc3_supply.dev = mmc[2].dev;
+
+	gpio_request(GOSSAMER_WIFI_EN_POW, "wifi_en_pow");
+	gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1);
+	
+	if (wl12xx_set_platform_data(&gossamer_wlan_data))
+		pr_err("Error setting wl12xx data\n");
+	platform_device_register(&omap_vwlan_device);
+
 	/* Fix to prevent VIO leakage on wl127x */
 	wl127x_vio_leakage_fix();
 
