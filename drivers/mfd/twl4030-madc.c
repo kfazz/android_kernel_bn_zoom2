@@ -820,7 +820,7 @@ static int __devexit twl4030_madc_remove(struct platform_device *pdev)
 
 	free_irq(platform_get_irq(pdev, 0), madc);
 	platform_set_drvdata(pdev, NULL);
-#ifdef (CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 	twl4030_madc_clock(0);
 #endif
 	twl4030_madc_set_current_generator(madc, 0, 0);
