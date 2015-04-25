@@ -920,6 +920,7 @@ static struct platform_device omap_vwlan_device = {
 	},
 };
 
+#if 0
 static int __init encore_wifi_init(void)
 {
 	int ret;
@@ -936,13 +937,12 @@ static int __init encore_wifi_init(void)
 	return ret;
 }
 device_initcall(encore_wifi_init);
+#endif
 
 static void __init omap_gossamer_init(void)
 {
 	/*we need to have this enable function here to lit up the BL*/
 	dump_board_revision();
-
-	platform_device_register(&omap_vwlan_device);
 
 #if defined(CONFIG_TOUCHSCREEN_ZFORCE) || defined(CONFIG_TOUCHSCREEN_ZFORCE_MODULE)
 #ifdef CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C
@@ -996,6 +996,9 @@ static void __init omap_gossamer_init(void)
 	gpio_leds(debug_leds, ARRAY_SIZE(debug_leds));
 #endif /* CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C */
 
+	if (wl12xx_set_platform_data(&gossamer_wlan_data))
+		pr_err("Error setting wl12xx data\n");
+	platform_device_register(&omap_vwlan_device);
 	/* Fix to prevent VIO leakage on wl127x */
 	wl127x_vio_leakage_fix();
 
