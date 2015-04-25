@@ -443,7 +443,9 @@ static struct omap2_hsmmc_info mmc[] = {
 	{}      /* Terminator */
 };
 
+#if 0
 static void gossamer_wifi_init(void);
+#endif
 
 static int __ref gossamer_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
@@ -462,8 +464,10 @@ static int __ref gossamer_twl_gpio_setup(struct device *dev,
 	gossamer_vsim_supply.dev = mmc[1].dev;
 	gossamer_vmmc2_supply.dev = mmc[0].dev;
 
+#if 0
 	/*we call this here because it relies on mmc already being setup. */
 	gossamer_wifi_init();
+#endif
 
 	return 0;
 }
@@ -802,7 +806,7 @@ void __init gpio_leds(struct gpio_led *leds, int nr)
 	platform_device_register(&gpio_leds_device);
 }
 
-
+#if 0
 static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
 {
 	printk(KERN_WARNING"%s: %d\n", __func__, on);
@@ -819,6 +823,8 @@ static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
 	}
 	return 0;
 }
+#endif
+
 
 static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
 	.irq = OMAP_GPIO_IRQ(GOSSAMER_WIFI_IRQ_GPIO),
@@ -827,6 +833,7 @@ static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
 	//.platform_quirks = WL12XX_PLATFORM_QUIRK_EDGE_IRQ,
 };
 
+#if 0
 static void gossamer_wifi_init(void)
 {
 	struct device *dev;
@@ -880,12 +887,62 @@ static void gossamer_wifi_init(void)
 out:
 	return;
 }
+#endif
 
+static struct regulator_consumer_supply encore_vmmc3_supply = {
+	.dev_name	= "omap_hsmmc.2",
+	.supply		= "vmmc",
+};
+
+static struct regulator_init_data encore_vmmc3 = {
+	.constraints = {
+		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies	= 1,
+	.consumer_supplies = &encore_vmmc3_supply,
+};
+
+static struct fixed_voltage_config encore_vwlan = {
+	.supply_name		= "vwl1271",
+	.microvolts		= 1800000, /* 1.8V */
+	.gpio			= GOSSAMER_WIFI_PMENA_GPIO,
+	.startup_delay		= 70000, /* 70msec */
+	.enable_high		= 1,
+	.enabled_at_boot	= 0,
+	.init_data		= &encore_vmmc3,
+};
+
+static struct platform_device omap_vwlan_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 1,
+	.dev = {
+		.platform_data	= &encore_vwlan,
+	},
+};
+
+static int __init encore_wifi_init(void)
+{
+	int ret;
+
+	gpio_request(GOSSAMER_WIFI_EN_POW, "wifi_en_pow");
+	/*Gossamer didn't have this on 2.6.29 */
+	//encore_wifi_v18io_power_enable();
+	gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1);
+
+	ret = wl12xx_set_platform_data(&gossamer_wlan_data);
+	if (ret)
+		pr_err("Error setting wl12xx data\n");
+
+	return ret;
+}
+device_initcall(encore_wifi_init);
 
 static void __init omap_gossamer_init(void)
 {
 	/*we need to have this enable function here to lit up the BL*/
 	dump_board_revision();
+
+	platform_device_register(&omap_vwlan_device);
 
 #if defined(CONFIG_TOUCHSCREEN_ZFORCE) || defined(CONFIG_TOUCHSCREEN_ZFORCE_MODULE)
 #ifdef CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C
