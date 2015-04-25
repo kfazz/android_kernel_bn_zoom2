@@ -133,7 +133,7 @@ const struct twl4030_madc_conversion_method twl4030_conversion_methods[] = {
 			      },
 };
 
-#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 
 #define R_GPBR1				0x0c
 #define GPBR1_MADC_HFCLK_EN		(1u << 7)
@@ -156,7 +156,7 @@ static void twl4030_madc_clock(int on)
 	twl_i2c_write_u8(TWL4030_MODULE_INTBR, val, R_GPBR1);
 }
 
-#endif /* CONFIG_MACH_OMAP3621_GOSSAMER */
+#endif /* CONFIG_MACH_OMAP3621_GOSSAMER || CONFIG_MACH_ENCORE */
 
 /*
  * Function to read a particular channel value.
@@ -746,7 +746,8 @@ static int __devinit twl4030_madc_probe(struct platform_device *pdev)
 	ret = twl4030_madc_set_power(madc, 1);
 	if (ret < 0)
 		goto err_power;
-#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 	twl4030_madc_clock(1);
 #endif
 	ret = twl4030_madc_set_current_generator(madc, 0, 1);
@@ -819,7 +820,7 @@ static int __devexit twl4030_madc_remove(struct platform_device *pdev)
 
 	free_irq(platform_get_irq(pdev, 0), madc);
 	platform_set_drvdata(pdev, NULL);
-#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+#ifdef (CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 	twl4030_madc_clock(0);
 #endif
 	twl4030_madc_set_current_generator(madc, 0, 0);

@@ -2187,7 +2187,7 @@ unknown_cmnd:
 		common->data_size_from_cmnd = 0;
 		sprintf(unknown, "Unknown x%02x", common->cmnd[0]);
 		reply = check_command(common, common->cmnd_size,
-				      DATA_DIR_UNKNOWN, 0xff, 0, unknown);
+				      DATA_DIR_UNKNOWN, ~0, 0, unknown);
 		if (reply == 0) {
 			common->curlun->sense_data = SS_INVALID_COMMAND;
 			reply = -EINVAL;
@@ -2959,12 +2959,12 @@ static void fsg_common_release(struct kref *ref)
 
 
 /*-------------------------------------------------------------------------*/
-
+unsigned int mass_storage_flag=0;
 static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct fsg_dev		*fsg = fsg_from_func(f);
 	struct fsg_common	*common = fsg->common;
-
+	mass_storage_flag=0;
 	DBG(fsg, "unbind\n");
 	if (fsg->common->fsg == fsg) {
 		fsg->common->new_fsg = NULL;
@@ -3026,6 +3026,7 @@ static int fsg_bind(struct usb_configuration *c, struct usb_function *f)
 		}
 	}
 
+	mass_storage_flag=1;
 	return 0;
 
 autoconf_fail:
@@ -3177,4 +3178,3 @@ fsg_common_from_params(struct fsg_common *common,
 	fsg_config_from_params(&cfg, params);
 	return fsg_common_init(common, cdev, &cfg);
 }
-

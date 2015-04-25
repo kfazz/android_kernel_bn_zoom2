@@ -69,7 +69,7 @@ static void omap_prcm_arch_reset(char mode, const char *cmd)
 	} else if (cpu_is_omap34xx()) {
 		u32 l;
 		prcm_offs = OMAP3430_GR_MOD;
-#if defined(CONFIG_MACH_OMAP3621_GOSSAMER)
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 		{
 			/* applying from 2.6.32 */
 			//l = ('B' << 24) | ('M' << 16) | (reset_mode << 8) | mode;
@@ -79,7 +79,6 @@ static void omap_prcm_arch_reset(char mode, const char *cmd)
 #else
 		omap3_ctrl_write_boot_mode((cmd ? (u8)*cmd : 0));
 #endif
-		omap3_ctrl_write_boot_mode((cmd ? (u8)*cmd : 0));
 	} else if (cpu_is_omap44xx()) {
 		omap4_prm_global_warm_sw_reset(); /* never returns */
 	} else {

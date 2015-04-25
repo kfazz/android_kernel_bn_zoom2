@@ -279,6 +279,52 @@ config MACH_OMAP_ZOOM3
 	select SERIAL_8250_CONSOLE
 	select REGULATOR_FIXED_VOLTAGE
 
+config MACH_ENCORE
+	bool "Encore (BN Nook Color)"
+	depends on ARCH_OMAP3
+	default y
+	select OMAP_PACKAGE_CBP
+	select REGULATOR_FIXED_VOLTAGE
+	select WLAN_POWER_EVT1
+
+if MACH_ENCORE
+
+choice
+	prompt "Orientation of Encore screen"
+	default ENCORE_ORIENTATION_PORTRAIT
+
+config ENCORE_ORIENTATION_PORTRAIT
+	bool "Portrait (natural) orientation"
+	help
+	  The natural orientation for a Nook Color (N key at the bottom).
+
+config ENCORE_ORIENTATION_LANDSCAPE
+	bool "Landscape orientation"
+	help
+	  Landscape orientation with the N key to the right.
+
+endchoice
+
+choice
+	prompt "MPU clock speed for Encore"
+	default ENCORE_MPU_1000MHZ
+
+config ENCORE_MPU_STOCK
+	bool "800 MHz (stock clock speed for OMAP3621 and Encore)"
+
+config ENCORE_MPU_1000MHZ
+	bool "1000 MHz (stock clock speed for OMAP3630)"
+
+config ENCORE_MPU_1100MHZ
+	bool "1100 MHz overclock"
+
+config ENCORE_MPU_1200MHZ
+	bool "1200 MHz overclock"
+
+endchoice
+
+endif
+
 config MACH_CM_T35
 	bool "CompuLab CM-T35 module"
 	depends on ARCH_OMAP3
@@ -476,6 +522,13 @@ config OMAP4_ARM_ERRATA_743622
 	  This involves setting bit 6 of the CP15 diagnostic control register.
 	  This is handled for HS devices in the PPA code and does not need to be
 	  enabled."
+
+config WLAN_POWER_EVT1
+        bool "WLAN power support"
+        depends on MACH_ENCORE
+        default "y"
+        help
+	  Has to be set for B&N Encore board.
 
 endmenu
 

@@ -39,7 +39,8 @@ static struct omap_device_pm_latency omap_sr_latency[] = {
 	},
 };
 
-#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined (CONFIG_MACH_ENCORE)
 #define GAIN_MAXLIMIT	16
 #define R_MAXLIMIT	256
 
@@ -89,7 +90,7 @@ static struct sr_test_nvalue_params omap36xx_sr_testing_nvalues[] = {
 	{ 1842, 1580 }, /* OPP4 */
 	{ 1950, 1680 }, /* OPP5 */
 };
-#endif /* CONFIG_MACH_OMAP3621_GOSSAMER */
+#endif /* CONFIG_MACH_OMAP3621_GOSSAMER || CONFIG_MACH_ENCORE */
 
 /* Read EFUSE values from control registers for OMAP3430 */
 static void __init sr_set_nvalues(struct omap_volt_data *volt_data,
@@ -107,7 +108,7 @@ static void __init sr_set_nvalues(struct omap_volt_data *volt_data,
 	for (i = 0; i < count; i++) {
 		u32 v;
 
-#ifdef CONFIG_MACH_OMAP3621_GOSSAMER
+#if defined(CONFIG_MACH_OMAP3621_GOSSAMER) || defined(CONFIG_MACH_ENCORE)
 		/* Use test nvalues gleaned from 2.6.32 for OPP4/5 if those
 		 * OPPs are enabled, since OMAP3621 doesn't have efuse values
 		 * for those OPPs */
@@ -116,7 +117,6 @@ static void __init sr_set_nvalues(struct omap_volt_data *volt_data,
 					omap36xx_sr_testing_nvalues[i].pval);
 		} else
 #endif
-
 		/*
 		 * In OMAP4 the efuse registers are 24 bit aligned.
 		 * A __raw_readl will fail for non-32 bit aligned address
@@ -169,7 +169,7 @@ static int sr_dev_init(struct omap_hwmod *oh, void *user)
 	sr_data->senp_mod = 0x1;
 
 	sr_data->voltdm = voltdm_lookup(sr_dev_attr->sensor_voltdm_name);
-	if (IS_ERR(sr_data->voltdm)) {
+	if (!sr_data->voltdm) {
 		pr_err("%s: Unable to get voltage domain pointer for VDD %s\n",
 			__func__, sr_dev_attr->sensor_voltdm_name);
 		goto exit;

@@ -112,9 +112,17 @@ static void omap3_enable_io_chain(void)
 				       "activation failed.\n");
 				return;
 			}
-			omap2_prm_set_mod_reg_bits(OMAP3430_ST_IO_CHAIN_MASK,
-					     WKUP_MOD, PM_WKEN);
 		}
+		/*
+		 * Moving clearing of ST_IO_CHAIN outside of while loop.
+		 * When IO chain is triggered, s/w should wait for IO chain to
+		 * complete. Which is getting done in above while loop. Once the
+		 * bit is set, it should be cleared outside the while loop.
+		 * Moving the clearing of IO CHAIN status outside of loop. Else
+		 * we won't be waiting enough for IO chain to complete.
+		 */
+		omap2_prm_set_mod_reg_bits(OMAP3430_ST_IO_CHAIN_MASK,
+					     WKUP_MOD, PM_WKEN);
 	}
 }
 
@@ -362,7 +370,7 @@ void omap_sram_idle(bool suspend)
 	int mpu_next_state = PWRDM_POWER_ON;
 	int per_next_state = PWRDM_POWER_ON;
 	int core_next_state = PWRDM_POWER_ON;
-	int per_going_off;
+	int per_going_off = 0; //Don't use OMAP3 GPIO glitch work around
 	int core_prev_state, per_prev_state;
 	u32 sdrc_pwr = 0;
 	int cam_fclken;
@@ -403,13 +411,14 @@ void omap_sram_idle(bool suspend)
 	/* Enable IO-PAD and IO-CHAIN wakeups */
 	per_next_state = pwrdm_read_next_pwrst(per_pwrdm);
 	core_next_state = pwrdm_read_next_pwrst(core_pwrdm);
+#if 0
 	if (omap3_has_io_wakeup() &&
 	    (per_next_state < PWRDM_POWER_ON ||
 	     core_next_state < PWRDM_POWER_ON)) {
 		omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_MASK, WKUP_MOD, PM_WKEN);
 		omap3_enable_io_chain();
 	}
-
+#endif
 	pwrdm_pre_transition();
 
 	/*
@@ -443,9 +452,14 @@ void omap_sram_idle(bool suspend)
 	}
 
 	/* PER */
-	if (per_next_state < PWRDM_POWER_ON) {
-		per_going_off = (per_next_state == PWRDM_POWER_OFF) ? 1 : 0;
-		omap2_gpio_prepare_for_idle(per_going_off, suspend);
+	if (per_next_state < PWRDM_POWER_ON && core_next_state < PWRDM_POWER_ON) {
+		//per_going_off = (per_next_state == PWRDM_POWER_OFF) ? 1 : 0;
+		if (omap2_gpio_prepare_for_idle(per_going_off, suspend)) {
+			pwrdm_post_transition();
+			goto abort_gpio;
+		}
+		omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_MASK, WKUP_MOD, PM_WKEN);
+		omap3_enable_io_chain();
 	}
 
 	/* CORE */
@@ -525,11 +539,15 @@ void omap_sram_idle(bool suspend)
 	pwrdm_post_transition();
 
 	/* PER */
-	if (per_next_state < PWRDM_POWER_ON) {
+	if (per_next_state < PWRDM_POWER_ON && core_next_state < PWRDM_POWER_ON) {
 		per_prev_state = pwrdm_read_prev_pwrst(per_pwrdm);
 		omap2_gpio_resume_after_idle(per_going_off);
-	}
 
+		omap2_prm_clear_mod_reg_bits(OMAP3430_EN_IO_MASK, WKUP_MOD,
+					     PM_WKEN);
+		omap3_disable_io_chain();
+	}
+#if 0
 	/* Disable IO-PAD and IO-CHAIN wakeup */
 	if (omap3_has_io_wakeup() &&
 	    (per_next_state < PWRDM_POWER_ON ||
@@ -538,7 +556,9 @@ void omap_sram_idle(bool suspend)
 					     PM_WKEN);
 		omap3_disable_io_chain();
 	}
+#endif
 
+abort_gpio:
 	clkdm_allow_idle(mpu_pwrdm->pwrdm_clkdms[0]);
 }
 
@@ -896,7 +916,8 @@ arch_initcall(omap3_pm_early_init);
  */
 static int __init clkdms_setup(struct clockdomain *clkdm, void *unused)
 {
-	if (clkdm->flags & CLKDM_CAN_ENABLE_AUTO)
+	if ((clkdm->flags & CLKDM_CAN_ENABLE_AUTO) &&
+	    !(clkdm->flags & CLKDM_MISSING_IDLE_REPORTING))
 		clkdm_allow_idle(clkdm);
 	else if (clkdm->flags & CLKDM_CAN_FORCE_SLEEP &&
 		 atomic_read(&clkdm->usecount) == 0)
@@ -989,6 +1010,25 @@ static int __init omap3_pm_init(void)
 		omap3630_ctrl_disable_rta();
 
 	clkdm_add_wkdep(neon_clkdm, mpu_clkdm);
+	/*
+	 * Part of fix for errata i468.
+	 * GPIO pad spurious transition (glitch/spike) upon wakeup
+	 * from SYSTEM OFF mode.
+	 * 20120810 sangki.hyun@lge.com glitch patch
+	 */
+	if (omap_rev() <= OMAP3630_REV_ES1_2) {
+		struct clockdomain *wkup_clkdm;
+
+		clkdm_add_wkdep(per_clkdm, core_clkdm);
+
+		/* Also part of fix for errata i582. */
+		wkup_clkdm = clkdm_lookup("wkup_clkdm");
+		if (wkup_clkdm)
+			clkdm_add_wkdep(per_clkdm, wkup_clkdm);
+		else
+			printk(KERN_ERR "%s: failed to look up wkup clock ""domain\n", __func__);
+	}
+
 	if (omap_type() != OMAP2_DEVICE_TYPE_GP) {
 		omap3_secure_ram_storage =
 			kmalloc(0x803F, GFP_KERNEL);

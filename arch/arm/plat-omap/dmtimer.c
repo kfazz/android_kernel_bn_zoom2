@@ -232,6 +232,45 @@ static void omap_dm_timer_write_reg(struct omap_dm_timer *timer, u32 reg,
 	writel(value, timer->io_base + (reg & 0xff));
 }
 
+/*
+ * __omap_dm_timer_enable_posted - enables write posted mode
+ * @timer: pointer to timer instance handle
+ *
+ * Enables the write posted mode for the timer. When posted mode is enabled
+ * writes to certain timer registers are immediately acknowledged by the
+ * internal bus and hence prevents stalling the CPU waiting for the write to
+ * complete. Enabling this feature can improve performance for writing to the
+ * timer registers.
+ */
+static inline void __omap_dm_timer_enable_posted(struct omap_dm_timer *timer)
+{
+	if (timer->posted)
+		return;
+
+	if (timer->errata & OMAP_TIMER_ERRATA_I103_I767)
+		return;
+	omap_dm_timer_write_reg(timer, OMAP_TIMER_IF_CTRL_REG,
+			      OMAP_TIMER_CTRL_POSTED);
+	timer->context.tsicr = OMAP_TIMER_CTRL_POSTED;
+	timer->posted = OMAP_TIMER_POSTED;
+}
+
+/**
+ * __omap_dm_timer_override_errata - override errata flags for a timer
+ * @timer: pointer to timer handle
+ * @errata: errata flags to be ignored
+ *
+ * For a given timer, override a timer errata by clearing the flags
+ * specified by the errata argument. A specific erratum should only be
+ * overridden for a timer if the timer is used in such a way the erratum
+ * has no impact.
+ */
+static inline void __omap_dm_timer_override_errata(struct omap_dm_timer *timer,
+						  u32 errata)
+{
+	timer->errata &= ~errata;
+}
+
 static void omap_timer_save_context(struct omap_dm_timer *timer)
 {
 	timer->context.tiocp_cfg =
@@ -285,17 +324,17 @@ static void __timer_enable(struct omap_dm_timer *timer)
 	if (!timer->enabled) {
 		if (timer->loses_context)
 			pm_runtime_get_sync(&timer->pdev->dev);
-		timer->enabled = 1;
+
+	timer->enabled = 1;
 	}
 }
 
 static void __timer_disable(struct omap_dm_timer *timer)
 {
-	if (timer->enabled) {
-		if (timer->loses_context)
-			pm_runtime_put_sync_suspend(&timer->pdev->dev);
-		timer->enabled = 0;
-	}
+	if (timer->enabled)
+		pm_runtime_put_sync_suspend(&timer->pdev->dev);
+
+	timer->enabled = 0;
 }
 
 static void omap_dm_timer_wait_for_reset(struct omap_dm_timer *timer)
@@ -333,7 +372,7 @@ static void omap_dm_timer_reset(struct omap_dm_timer *timer)
 		__timer_disable(timer);
 }
 
-static int omap_dm_timer_prepare(struct omap_dm_timer *timer)
+static int omap_dm_timer_prepare(struct omap_dm_timer *timer, int posted)
 {
 	int ret;
 
@@ -358,22 +397,22 @@ static int omap_dm_timer_prepare(struct omap_dm_timer *timer)
 
 	omap_dm_timer_set_source(timer, OMAP_TIMER_SRC_32_KHZ);
 
+	__timer_enable(timer);
+
+	if (posted)
+		__omap_dm_timer_enable_posted(timer);
+
+	/* Check that the intended posted configuration matches the actual */
+	if (posted != timer->posted)
+		return -EINVAL;
+
+	__timer_disable(timer);
+
 end:
-	if (!timer->is_early_init)
-		__timer_enable(timer);
-
-	/* Match hardware reset default of posted mode */
-	omap_dm_timer_write_reg(timer, OMAP_TIMER_IF_CTRL_REG,
-			OMAP_TIMER_CTRL_POSTED);
-
-	if (!timer->is_early_init)
-		__timer_disable(timer);
-
-	timer->posted = 1;
 	return 0;
 }
 
-struct omap_dm_timer *omap_dm_timer_request(void)
+struct omap_dm_timer *__omap_dm_timer_request(int posted)
 {
 	struct omap_dm_timer *timer = NULL, *t;
 	int ret;
@@ -394,7 +433,15 @@ struct omap_dm_timer *omap_dm_timer_request(void)
 		pr_debug("%s: free timer not available.\n", __func__);
 		return NULL;
 	}
-	ret = omap_dm_timer_prepare(timer);
+
+	if (posted == OMAP_TIMER_POSTED) {
+		/* Assume the user knows what they're doing!
+		 * Ignore erratum for broken posted mode timers */
+		__omap_dm_timer_override_errata(timer,
+				OMAP_TIMER_ERRATA_I103_I767);
+	}
+
+	ret = omap_dm_timer_prepare(timer, posted);
 	if (ret) {
 		timer->reserved = 0;
 		return NULL;
@@ -402,9 +449,14 @@ struct omap_dm_timer *omap_dm_timer_request(void)
 
 	return timer;
 }
+
+struct omap_dm_timer *omap_dm_timer_request(void)
+{
+	return __omap_dm_timer_request(OMAP_TIMER_NONPOSTED);
+}
 EXPORT_SYMBOL_GPL(omap_dm_timer_request);
 
-struct omap_dm_timer *omap_dm_timer_request_specific(int id)
+struct omap_dm_timer *__omap_dm_timer_request_specific(int id, int posted)
 {
 	struct omap_dm_timer *timer = NULL, *t;
 	int ret;
@@ -424,13 +476,26 @@ struct omap_dm_timer *omap_dm_timer_request_specific(int id)
 		pr_debug("%s: timer%d not available.\n", __func__, id);
 		return NULL;
 	}
-	ret = omap_dm_timer_prepare(timer);
+
+	if (posted == OMAP_TIMER_POSTED) {
+		/* Assume the user knows what they're doing!
+		 * Ignore erratum for broken posted mode timers */
+		__omap_dm_timer_override_errata(timer,
+				OMAP_TIMER_ERRATA_I103_I767);
+	}
+
+	ret = omap_dm_timer_prepare(timer, posted);
 	if (ret) {
 		timer->reserved = 0;
 		return NULL;
 	}
 
 	return timer;
+}
+
+struct omap_dm_timer *omap_dm_timer_request_specific(int id)
+{
+	return __omap_dm_timer_request_specific(id, OMAP_TIMER_NONPOSTED);
 }
 EXPORT_SYMBOL_GPL(omap_dm_timer_request_specific);
 
@@ -575,6 +640,8 @@ int omap_dm_timer_start(struct omap_dm_timer *timer)
 
 	spin_lock_irqsave(&timer->lock, flags);
 	__timer_enable(timer);
+/* FIXME-HASH: Removed for Archos dmtimer.c merge */
+#if 1
 	if (timer->loses_context) {
 		if (omap_pm_was_context_lost(&timer->pdev->dev) &&
 			timer->context_saved) {
@@ -582,7 +649,7 @@ int omap_dm_timer_start(struct omap_dm_timer *timer)
 			timer->context_saved = false;
 		}
 	}
-
+#endif
 	l = omap_dm_timer_read_reg(timer, OMAP_TIMER_CTRL_REG);
 	if (!(l & OMAP_TIMER_CTRL_ST)) {
 		l |= OMAP_TIMER_CTRL_ST;
@@ -628,10 +695,13 @@ int omap_dm_timer_stop(struct omap_dm_timer *timer)
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_STAT_REG,
 			OMAP_TIMER_INT_OVERFLOW);
 
+/* FIXME-HASH: Removed for Archos dmtimer.c merge */
+#if 1
 	if (timer->loses_context) {
 		omap_timer_save_context(timer);
 		timer->context_saved = true;
 	}
+#endif
 	__timer_disable(timer);
 	spin_unlock_irqrestore(&timer->lock, flags);
 	return 0;
@@ -674,11 +744,15 @@ int omap_dm_timer_set_load(struct omap_dm_timer *timer, int autoreload,
 	u32 l;
 
 	unsigned long flags;
+	bool was_enabled;
+
 	if (!timer)
 		return -EINVAL;
 
 	spin_lock_irqsave(&timer->lock, flags);
-	__timer_enable(timer);
+	was_enabled = timer->enabled;
+	if (!was_enabled)
+		__timer_enable(timer);
 	l = omap_dm_timer_read_reg(timer, OMAP_TIMER_CTRL_REG);
 	if (autoreload)
 		l |= OMAP_TIMER_CTRL_AR;
@@ -688,7 +762,8 @@ int omap_dm_timer_set_load(struct omap_dm_timer *timer, int autoreload,
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_LOAD_REG, load);
 
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_TRIGGER_REG, 0);
-	__timer_disable(timer);
+	if (!was_enabled)
+		__timer_disable(timer);
 	spin_unlock_irqrestore(&timer->lock, flags);
 	return 0;
 }
@@ -704,6 +779,10 @@ int omap_dm_timer_set_load_start(struct omap_dm_timer *timer, int autoreload,
 		return -EINVAL;
 
 	spin_lock_irqsave(&timer->lock, flags);
+	if (!timer->is_early_init)
+		__timer_enable(timer);
+/* FIXME-HASH: Removed for Archos dmtimer.c merge */
+#if 1
 	__timer_enable(timer);
 	if (timer->loses_context) {
 		if (omap_pm_was_context_lost(&timer->pdev->dev) &&
@@ -712,7 +791,7 @@ int omap_dm_timer_set_load_start(struct omap_dm_timer *timer, int autoreload,
 			timer->context_saved = false;
 		}
 	}
-
+#endif
 	l = omap_dm_timer_read_reg(timer, OMAP_TIMER_CTRL_REG);
 	if (autoreload) {
 		l |= OMAP_TIMER_CTRL_AR;
@@ -734,12 +813,15 @@ int omap_dm_timer_set_match(struct omap_dm_timer *timer, int enable,
 {
 	u32 l;
 	unsigned long flags;
+	bool was_enabled;
 
 	if (!timer)
 		return -EINVAL;
 
 	spin_lock_irqsave(&timer->lock, flags);
-	__timer_enable(timer);
+	was_enabled = timer->enabled;
+	if (!was_enabled)
+		__timer_enable(timer);
 	l = omap_dm_timer_read_reg(timer, OMAP_TIMER_CTRL_REG);
 	if (enable)
 		l |= OMAP_TIMER_CTRL_CE;
@@ -747,7 +829,8 @@ int omap_dm_timer_set_match(struct omap_dm_timer *timer, int enable,
 		l &= ~OMAP_TIMER_CTRL_CE;
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_CTRL_REG, l);
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_MATCH_REG, match);
-	__timer_disable(timer);
+	if (!was_enabled)
+		__timer_disable(timer);
 	spin_unlock_irqrestore(&timer->lock, flags);
 	return 0;
 }
@@ -758,12 +841,15 @@ int omap_dm_timer_set_pwm(struct omap_dm_timer *timer, int def_on,
 {
 	u32 l;
 	unsigned long flags;
+	bool was_enabled;
 
 	if (!timer)
 		return -EINVAL;
 
 	spin_lock_irqsave(&timer->lock, flags);
-	__timer_enable(timer);
+	was_enabled = timer->enabled;
+	if (!was_enabled)
+		__timer_enable(timer);
 	l = omap_dm_timer_read_reg(timer, OMAP_TIMER_CTRL_REG);
 	l &= ~(OMAP_TIMER_CTRL_GPOCFG | OMAP_TIMER_CTRL_SCPWM |
 	       OMAP_TIMER_CTRL_PT | (0x03 << 10));
@@ -773,7 +859,8 @@ int omap_dm_timer_set_pwm(struct omap_dm_timer *timer, int def_on,
 		l |= OMAP_TIMER_CTRL_PT;
 	l |= trigger << 10;
 	omap_dm_timer_write_reg(timer, OMAP_TIMER_CTRL_REG, l);
-	__timer_disable(timer);
+	if (!was_enabled)
+		__timer_disable(timer);
 	spin_unlock_irqrestore(&timer->lock, flags);
 	return 0;
 }
@@ -980,6 +1067,7 @@ static int __devinit omap_dm_timer_probe(struct platform_device *pdev)
 	timer->is_early_init = pdata->is_early_init;
 	timer->needs_manual_reset = pdata->needs_manual_reset;
 	timer->loses_context = pdata->loses_context;
+	timer->errata = pdata->timer_errata;
 
 	spin_lock_init(&timer->lock);
 	 /* Skip pm_runtime_enable during early boot and for OMAP1 */

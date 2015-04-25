@@ -37,10 +37,13 @@
 #include <plat/clock.h>
 #include <plat/omap-pm.h>
 #include <plat/common.h>
+#include <plat/cpu.h>
 
 #include <mach/hardware.h>
 
 #include "dvfs.h"
+
+#include "omap2plus-cpufreq.h"
 
 #ifdef CONFIG_SMP
 struct lpj_info {
@@ -66,6 +69,13 @@ static unsigned int current_cooling_level;
 static bool omap_cpufreq_ready;
 static bool omap_cpufreq_suspended;
 
+static struct omap_cpufreq_platform_data *cpufreq_pdata = NULL;
+
+void omap_cpufreq_set_platform_data(struct omap_cpufreq_platform_data *pdata)
+{
+	cpufreq_pdata = pdata;
+}
+
 static unsigned int omap_getspeed(unsigned int cpu)
 {
 	unsigned long rate;
@@ -79,7 +89,9 @@ static unsigned int omap_getspeed(unsigned int cpu)
 
 static int omap_cpufreq_scale(unsigned int target_freq, unsigned int cur_freq)
 {
+#ifdef CONFIG_SMP
 	unsigned int i;
+#endif
 	int ret;
 	struct cpufreq_freqs freqs;
 
@@ -402,6 +414,10 @@ static int __cpuinit omap_cpu_init(struct cpufreq_policy *policy)
 	policy->max = policy->cpuinfo.max_freq;
 	policy->cur = omap_getspeed(policy->cpu);
 
+	/* Clamp clock to the maximum nominal frequency provided by board */
+	if (cpufreq_pdata)
+		policy->max = cpufreq_pdata->max_nominal_freq;
+
 	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
 		max_freq = max(freq_table[i].frequency, max_freq);
 	max_thermal = max_freq;
@@ -420,8 +436,13 @@ static int __cpuinit omap_cpu_init(struct cpufreq_policy *policy)
 	}
 
 	omap_cpufreq_cooling_init();
-	/* FIXME: what's the actual transition time? */
-	policy->cpuinfo.transition_latency = 300 * 1000;
+
+	/* XXX: This is almost certainly papering over a bug elsewhere */
+	if (cpu_is_omap3630() && omap_rev() < OMAP3630_REV_ES1_2)
+		policy->cpuinfo.transition_latency = 30 * 1000;
+	else
+		/* FIXME: what's the actual transition time? */
+		policy->cpuinfo.transition_latency = 300 * 1000;
 
 	return 0;
 

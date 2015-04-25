@@ -529,6 +529,7 @@ static int dsscomp_probe(struct platform_device *pdev)
 
 	ret = misc_register(&cdev->dev);
 	if (ret) {
+		kfree(cdev);
 		pr_err("dsscomp: failed to register misc device.\n");
 		return ret;
 	}
@@ -620,7 +621,9 @@ void dsscomp_kdump(void)
 	};
 	int i;
 
+#ifdef CONFIG_DSSCOMP_DEBUG_LOG
 	dsscomp_dbg_events(&s);
+#endif
 	dsscomp_dbg_comps(&s);
 	dsscomp_dbg_gralloc(&s);
 

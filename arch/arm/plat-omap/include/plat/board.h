@@ -119,6 +119,15 @@ struct omap_pwm_led_platform_data {
 	int intensity_timer;
 	int blink_timer;
 	void (*set_power)(struct omap_pwm_led_platform_data *self, int on_off);
+	void (*set_pad)(struct omap_pwm_led_platform_data *Self, int on_off);
+	u8 def_brightness;
+#ifdef CONFIG_LEDS_OMAP_PWM
+	const char *default_trigger;
+	unsigned int bkl_freq;
+	unsigned char bkl_max;
+	unsigned char bkl_min;
+	unsigned invert;
+#endif
 };
 
 struct omap_uart_config {

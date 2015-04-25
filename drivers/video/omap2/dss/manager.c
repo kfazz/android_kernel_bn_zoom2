@@ -1283,7 +1283,7 @@ static void make_even(u16 *x, u16 *w)
 
 /* Configure dispc for partial update. Return possibly modified update
  * area */
-void dss_setup_partial_planes(struct omap_dss_device *dssdev,
+int dss_setup_partial_planes(struct omap_dss_device *dssdev,
 		u16 *xi, u16 *yi, u16 *wi, u16 *hi, bool enlarge_update_area)
 {
 	struct overlay_cache_data *oc;
@@ -1294,6 +1294,7 @@ void dss_setup_partial_planes(struct omap_dss_device *dssdev,
 	u16 x, y, w, h;
 	unsigned long flags;
 	bool area_changed;
+	int r = 0;
 
 	x = *xi;
 	y = *yi;
@@ -1307,7 +1308,7 @@ void dss_setup_partial_planes(struct omap_dss_device *dssdev,
 
 	if (!mgr) {
 		DSSDBG("no manager\n");
-		return;
+		return -EINVAL;
 	}
 
 	make_even(&x, &w);
@@ -1404,7 +1405,7 @@ void dss_setup_partial_planes(struct omap_dss_device *dssdev,
 	mc->w = w;
 	mc->h = h;
 
-	configure_dispc();
+	r = configure_dispc();
 
 	mc->do_manual_update = false;
 
@@ -1414,6 +1415,8 @@ void dss_setup_partial_planes(struct omap_dss_device *dssdev,
 	*yi = y;
 	*wi = w;
 	*hi = h;
+
+	return r;
 }
 
 static void schedule_completion_irq(void);
@@ -1621,8 +1624,11 @@ static int omap_dss_mgr_blank(struct omap_overlay_manager *mgr,
 {
 	struct overlay_cache_data *oc;
 	struct manager_cache_data *mc;
+	struct omap_dss_device *dev;
+	struct omap_dss_driver *drv;
 	unsigned long flags;
 	int r, r_get, i;
+	bool update = false;
 
 	DSSDBG("omap_dss_mgr_blank(%s,wait=%d)\n", mgr->name, wait_for_go);
 
@@ -1630,6 +1636,11 @@ static int omap_dss_mgr_blank(struct omap_overlay_manager *mgr,
 	/* still clear cache even if failed to get clocks, just don't config */
 
 	spin_lock_irqsave(&dss_cache.lock, flags);
+
+	/* there is no GO on inactive displays */
+	if (!mgr->device ||
+	    mgr->device->state != OMAP_DSS_DISPLAY_ACTIVE)
+		wait_for_go = false;
 
 	/* disable overlays in overlay info structs and in cache */
 	for (i = 0; i < omap_dss_get_num_overlays(); i++) {
@@ -1696,31 +1707,31 @@ static int omap_dss_mgr_blank(struct omap_overlay_manager *mgr,
 			oc = &dss_cache.overlay_cache[i];
 			if (oc->channel != mgr->id)
 				continue;
-			if (r && oc->dirty)
-				dss_ovl_configure_cb(&oc->cb, i, false);
-			if (oc->shadow_dirty) {
-				dss_ovl_program_cb(&oc->cb, i);
-				oc->dispc_channel = oc->channel;
-				oc->shadow_dirty = false;
-			} else {
-				pr_warn("ovl%d-shadow is not dirty\n", i);
-			}
+			dss_ovl_configure_cb(&oc->cb, i, false);
+			dss_ovl_program_cb(&oc->cb, i);
+			oc->dispc_channel = oc->channel;
 		}
 
-		if (r && mc->dirty)
-			dss_ovl_configure_cb(&mc->cb, i, false);
-		if (mc->shadow_dirty) {
-			dss_ovl_program_cb(&mc->cb, i);
-			mc->shadow_dirty = false;
-		} else {
-			pr_warn("mgr%d-shadow is not dirty\n", mgr->id);
-		}
+		dss_ovl_configure_cb(&mc->cb, i, false);
+		dss_ovl_program_cb(&mc->cb, i);
+	}
+
+	if (wait_for_go) {
+		dev = mgr->device;
+		drv = dev->driver;
+		update = drv && mc->manual_upd_display;
 	}
 
 	spin_unlock_irqrestore(&dss_cache.lock, flags);
 
-	if (wait_for_go)
-		mgr->wait_for_go(mgr);
+	if (wait_for_go) {
+		if (update)
+			drv->update(mgr->device, 0, 0,
+						dev->panel.timings.x_res,
+						dev->panel.timings.y_res);
+		else
+			mgr->wait_for_go(mgr);
+	}
 
 	if (!r_get)
 		dispc_runtime_put();

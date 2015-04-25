@@ -853,7 +853,7 @@ dispc_get_scaling_coef(u32 inc, bool five_taps)
 	static const struct dispc_hv_coef coef_M32[8] = {
 		{    7,   34,   46,   34,    7 },
 		{    4,   31,   46,   37,   10 },
-		{    1,   27,   46,   39,   14 },
+		{    1,   28,   46,   39,   14 },
 		{   -1,   24,   46,   42,   17 },
 		{   21,   45,   45,   21,   -4 },
 		{   17,   42,   46,   24,   -1 },
@@ -1453,10 +1453,10 @@ static void _dispc_set_scale_param(enum omap_plane plane,
 	hscaleup = orig_width <= out_width;
 	vscaleup = orig_height <= out_height;
 
-	_dispc_set_scale_coef(plane, hscaleup, vscaleup, five_taps, color_comp);
-
 	fir_hinc = 1024 * orig_width / out_width;
 	fir_vinc = 1024 * orig_height / out_height;
+
+	_dispc_set_scale_coef(plane, fir_hinc, fir_vinc, five_taps, color_comp);
 
 	_dispc_set_fir(plane, fir_hinc, fir_vinc, color_comp);
 }
@@ -1471,9 +1471,8 @@ static void _dispc_set_scaling_common(enum omap_plane plane,
 	int accu0 = 0;
 	int accu1 = 0;
 	u32 l;
-	u16 y_adjust = color_mode == OMAP_DSS_COLOR_NV12 ? 2 : 0;
 
-	_dispc_set_scale_param(plane, orig_width, orig_height - y_adjust,
+	_dispc_set_scale_param(plane, orig_width, orig_height,
 				out_width, out_height, five_taps,
 				rotation, DISPC_COLOR_COMPONENT_RGB_Y);
 	l = dispc_read_reg(DISPC_OVL_ATTRIBUTES(plane));
@@ -1525,7 +1524,6 @@ static void _dispc_set_scaling_uv(enum omap_plane plane,
 {
 	int scale_x = out_width != orig_width;
 	int scale_y = out_height != orig_height;
-	u16 y_adjust = 0;
 
 	if (!dss_has_feature(FEAT_HANDLE_UV_SEPARATE))
 		return;
@@ -1542,7 +1540,6 @@ static void _dispc_set_scaling_uv(enum omap_plane plane,
 		orig_height >>= 1;
 		/* UV is subsampled by 2 horz.*/
 		orig_width >>= 1;
-		y_adjust = 1;
 		break;
 	case OMAP_DSS_COLOR_YUV2:
 	case OMAP_DSS_COLOR_UYVY:
@@ -1566,7 +1563,7 @@ static void _dispc_set_scaling_uv(enum omap_plane plane,
 	if (out_height != orig_height)
 		scale_y = true;
 
-	_dispc_set_scale_param(plane, orig_width, orig_height - y_adjust,
+	_dispc_set_scale_param(plane, orig_width, orig_height,
 			out_width, out_height, five_taps,
 				rotation, DISPC_COLOR_COMPONENT_UV);
 
@@ -2311,10 +2308,10 @@ int dispc_setup_plane(enum omap_plane plane,
 	} else {
 		/* video plane */
 
-		if (out_width < width / maxdownscale)
+		if (out_width < DIV_ROUND_UP(width, maxdownscale))
 			return -EINVAL;
 
-		if (out_height < height / maxdownscale)
+		if (out_height < DIV_ROUND_UP(height, maxdownscale))
 			return -EINVAL;
 
 		if (color_mode == OMAP_DSS_COLOR_YUV2 ||
@@ -2959,7 +2956,7 @@ static void dispc_set_lcd_divisor(enum omap_channel channel, u16 lck_div,
 		u16 pck_div)
 {
 	BUG_ON(lck_div < 1);
-	BUG_ON(pck_div < 2);
+	BUG_ON(pck_div < 1);
 
 	dispc_write_reg(DISPC_DIVISORo(channel),
 			FLD_VAL(lck_div, 23, 16) | FLD_VAL(pck_div, 7, 0));
@@ -3322,6 +3319,29 @@ static void _dispc_set_pol_freq(enum omap_channel channel, bool onoff, bool rf,
 	dispc_write_reg(DISPC_POL_FREQ(channel), l);
 }
 
+static void dispc_get_pol_freq(enum omap_channel channel,
+			enum omap_panel_config *config, u8 *acbi, u8 *acb)
+{
+	u32 l = dispc_read_reg(DISPC_POL_FREQ(channel));
+	*config = 0;
+
+	if (FLD_GET(l, 17, 17))
+		*config |= OMAP_DSS_LCD_ONOFF;
+	if (FLD_GET(l, 16, 16))
+		*config |= OMAP_DSS_LCD_RF;
+	if (FLD_GET(l, 15, 15))
+		*config |= OMAP_DSS_LCD_IEO;
+	if (FLD_GET(l, 14, 14))
+		*config |= OMAP_DSS_LCD_IPC;
+	if (FLD_GET(l, 13, 13))
+		*config |= OMAP_DSS_LCD_IHS;
+	if (FLD_GET(l, 12, 12))
+		*config |= OMAP_DSS_LCD_IVS;
+
+	*acbi = FLD_GET(l, 11, 8);
+	*acb = FLD_GET(l, 7, 0);
+}
+
 void dispc_set_pol_freq(enum omap_channel channel,
 		enum omap_panel_config config, u8 acbi, u8 acb)
 {
@@ -3385,7 +3405,7 @@ int dispc_calc_clock_rates(unsigned long dispc_fclk_rate,
 {
 	if (cinfo->lck_div > 255 || cinfo->lck_div == 0)
 		return -EINVAL;
-	if (cinfo->pck_div < 2 || cinfo->pck_div > 255)
+	if (cinfo->pck_div < 1 || cinfo->pck_div > 255)
 		return -EINVAL;
 
 	cinfo->lck = dispc_fclk_rate / cinfo->lck_div;
@@ -3399,6 +3419,16 @@ int dispc_set_clock_div(enum omap_channel channel,
 {
 	DSSDBG("lck = %lu (%u)\n", cinfo->lck, cinfo->lck_div);
 	DSSDBG("pck = %lu (%u)\n", cinfo->pck, cinfo->pck_div);
+
+	/* In case DISPC_CORE_CLK == PCLK, IPC must work on rising edge */
+	if (dss_has_feature(FEAT_CORE_CLK_DIV) &&
+			(cinfo->lck_div * cinfo->pck_div == 1)) {
+		u8 acb, acbi;
+		enum omap_panel_config config;
+		dispc_get_pol_freq(channel, &config, &acbi, &acb);
+		config |= OMAP_DSS_LCD_IPC;
+		dispc_set_pol_freq(channel, config, acbi, acb);
+	}
 
 	dispc_set_lcd_divisor(channel, cinfo->lck_div, cinfo->pck_div);
 
