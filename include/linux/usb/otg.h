@@ -66,8 +66,8 @@ struct otg_transceiver {
 
 	u8			default_a;
 	enum usb_otg_state	state;
-	void			*last_event_data;
 	enum usb_xceiv_events	last_event;
+
 	struct usb_bus		*host;
 	struct usb_gadget	*gadget;
 
@@ -114,15 +114,6 @@ struct otg_transceiver {
 
 	/* start or continue HNP role switch */
 	int	(*start_hnp)(struct otg_transceiver *otg);
-
-	/* start or continue HNP role switch */
-	int     (*get_link_status)(struct otg_transceiver *otg);
-
-	/* ask the link to save internal context */
-	void    (*link_save_context)(struct otg_transceiver *otg);
-
-	/* ask the link to restore internal context */
-	void    (*link_restore_context)(struct otg_transceiver *otg);
 
 };
 
@@ -262,22 +253,6 @@ otg_start_srp(struct otg_transceiver *otg)
 
 /* notifiers */
 static inline int
-otg_notify_event(struct otg_transceiver *otg, enum usb_xceiv_events event,
-		void *data)
-{
-	otg->last_event = event;
-	otg->last_event_data = data;
-
-	return atomic_notifier_call_chain(&otg->notifier, event, data);
-}
-
-static inline int
-otg_get_last_event(struct otg_transceiver *otg)
-{
-	return otg_notify_event(otg, otg->last_event, otg->last_event_data);
-}
-
-static inline int
 otg_register_notifier(struct otg_transceiver *otg, struct notifier_block *nb)
 {
 	return atomic_notifier_chain_register(&otg->notifier, nb);
@@ -287,16 +262,6 @@ static inline void
 otg_unregister_notifier(struct otg_transceiver *otg, struct notifier_block *nb)
 {
 	atomic_notifier_chain_unregister(&otg->notifier, nb);
-}
-
-/* notifiers */
-static inline int
-otg_get_link_status(struct otg_transceiver *otg)
-{
-	if (otg->get_link_status != NULL)
-		return otg->get_link_status(otg);
-	else
-		return 0;
 }
 
 /* for OTG controller drivers (and maybe other stuff) */
