@@ -611,7 +611,7 @@ static struct twl4030_power_data gossamer_t2scripts_data __initdata = {
 	.scripts	= twl4030_scripts,
 	.num		= ARRAY_SIZE(twl4030_scripts),
 	.resource_config = twl4030_rconfig,
-	//.use_poweroff	 = true,
+	.use_poweroff	 = true,
 };
 
 static struct twl4030_platform_data __refdata gossamer_twldata = {
