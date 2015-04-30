@@ -14,6 +14,7 @@
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
+#include <linux/reboot.h>
 
 #include "pmic.h"
 
@@ -29,6 +30,9 @@
  * power down request, before giving up and reporting error.
  */
 #define PMIC_POWERDOWN_TIMEOUT_MS	100
+
+/*used as a handle to the sess struct for the reboot notifier to work with*/
+static struct pmic_sess *reboot_sess;
 
 
 static int null_hw_init(struct pmic_sess *sess, char *opt)
@@ -109,6 +113,58 @@ static void pmic_vcomoff_execute(struct work_struct *work)
 		st = sess->drv->hw_vcom_switch(sess, false);
 }
 
+static int pmic_prepare_for_reboot(struct notifier_block *this,
+		unsigned long cmd, void *p)
+{
+	int ret;
+	struct pmic_sess *sess;
+	sess = reboot_sess;
+	printk("pmic_prepare_for_reboot start\n");
+	if (reboot_sess == NULL) {
+		printk("reboot_sess is NULL\n");
+		goto out;
+	}
+
+	if (sess->powered) {
+		printk("pmic is powered\n");
+		if (sess->drv->hw_power_req)
+			sess->drv->hw_power_req(sess, false);
+		sess->powered = false;
+	}
+	else {
+		printk("pmic isn't powered\n");
+	}
+
+	if (sess->drv->hw_power_ack(sess)) {
+		int i;
+
+		/* hardware is still switching power off, so wait it */
+		for (i = 0; i < PMIC_POWERDOWN_TIMEOUT_MS; i += 10) {
+			msleep(10);
+			if (!sess->drv->hw_power_ack(sess)) {
+				printk("pmic rails have settled\n");
+				break; 
+			}
+		}
+		if (sess->drv->hw_power_ack(sess)) {
+			printk("timed out waiting for pmic to settle\n");
+			ret=1;
+		}
+	}
+	else
+	{
+		printk("pmic rails have settled\n");
+	}
+out:
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block pmic_reboot_notifier = {
+		.notifier_call = pmic_prepare_for_reboot,
+		.next = NULL,
+		.priority = 0
+};
+
 
 int pmic_probe(struct pmic_sess **sess, const char *id, char *opt,
 					unsigned int dwell_time_ms,
@@ -154,6 +210,11 @@ int pmic_probe(struct pmic_sess **sess, const char *id, char *opt,
 	if (stat)
 		goto free_sess;
 
+	reboot_sess = *sess;
+	stat = register_reboot_notifier(&pmic_reboot_notifier);
+	if (stat)
+		pr_err("pmic failed to register reboot notifier\n");
+
 	return 0;
 
 free_sess:
@@ -168,6 +229,7 @@ void pmic_remove(struct pmic_sess **sess)
 	cancel_delayed_work_sync(&(*sess)->powerdown_work);
 	cancel_delayed_work_sync(&(*sess)->vcomoff_work);
 
+	reboot_sess = NULL;
 	(*sess)->drv->hw_cleanup(*sess);
 
 	kfree(*sess);
