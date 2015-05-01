@@ -362,7 +362,7 @@ void omap_sram_idle(bool suspend)
 	int mpu_next_state = PWRDM_POWER_ON;
 	int per_next_state = PWRDM_POWER_ON;
 	int core_next_state = PWRDM_POWER_ON;
-	int per_going_off = 0; //Don't use OMAP3 GPIO glitch work around
+	int per_going_off;
 	int core_prev_state, per_prev_state;
 	u32 sdrc_pwr = 0;
 	int cam_fclken;
@@ -443,8 +443,8 @@ void omap_sram_idle(bool suspend)
 	}
 
 	/* PER */
-	if (per_next_state < PWRDM_POWER_ON && core_next_state < PWRDM_POWER_ON) {
-		//per_going_off = (per_next_state == PWRDM_POWER_OFF) ? 1 : 0;
+	if (per_next_state < PWRDM_POWER_ON) {
+		per_going_off = (per_next_state == PWRDM_POWER_OFF) ? 1 : 0;
 		omap2_gpio_prepare_for_idle(per_going_off, suspend);
 	}
 
