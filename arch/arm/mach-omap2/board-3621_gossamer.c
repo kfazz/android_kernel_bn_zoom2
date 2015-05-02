@@ -686,7 +686,6 @@ static struct i2c_board_info __initdata gossamer_i2c_bus2_info[] = {
 #endif /* CONFIG_LEDS_AS3676 */
 };
 
-
 #if defined(CONFIG_USB_ANDROID) || defined(CONFIG_USB_ANDROID_MODULE)
 static struct usb_mass_storage_platform_data mass_storage_pdata = {
 	.vendor = "B&N     ",
@@ -749,27 +748,6 @@ static int __init omap_i2c_init(void)
 	return 0;
 }
 
-static int __init wl127x_vio_leakage_fix(void)
-{
-	int ret = 0;
-
-	ret = gpio_request(WL127X_BTEN_GPIO, "wl127x_bten");
-	if (ret < 0) {
-		printk(KERN_ERR "wl127x_bten gpio_%d request fail",
-						WL127X_BTEN_GPIO);
-		goto fail;
-	}
-
-	gpio_direction_output(WL127X_BTEN_GPIO, 1);
-	mdelay(10);
-	gpio_direction_output(WL127X_BTEN_GPIO, 0);
-	udelay(64);
-
-	gpio_free(WL127X_BTEN_GPIO);
-fail:
-	return ret;
-}
-
 static void  dump_board_revision(void)
 {
 	switch (system_rev) {
@@ -806,88 +784,12 @@ void __init gpio_leds(struct gpio_led *leds, int nr)
 	platform_device_register(&gpio_leds_device);
 }
 
-#if 0
-static int wl12xx_set_power(struct device *dev, int slot, int on, int vdd)
-{
-	printk(KERN_WARNING"%s: %d\n", __func__, on);
-
-	if (on) {
-		gpio_set_value(GOSSAMER_WIFI_EN_POW, on);
-		udelay(800);
-		gpio_set_value(GOSSAMER_WIFI_PMENA_GPIO, on);
-		mdelay(70);
-	}
-	else {
-		gpio_set_value(GOSSAMER_WIFI_PMENA_GPIO, on);
-		gpio_set_value(GOSSAMER_WIFI_EN_POW, on);
-	}
-	return 0;
-}
-#endif
-
-
 static struct wl12xx_platform_data gossamer_wlan_data __initdata = {
 	.irq = OMAP_GPIO_IRQ(GOSSAMER_WIFI_IRQ_GPIO),
 	.board_ref_clock = WL12XX_REFCLOCK_38,
 	/* 2.6.32 has edge triggered falling interrupt */
 	//.platform_quirks = WL12XX_PLATFORM_QUIRK_EDGE_IRQ,
 };
-
-#if 0
-static void gossamer_wifi_init(void)
-{
-	struct device *dev;
-	struct omap_mmc_platform_data *pdata;
-	int ret;
-
-	printk(KERN_WARNING"%s: start\n", __func__);
-
-	ret = gpio_request(GOSSAMER_WIFI_PMENA_GPIO, "wifi_pmena");
-	if (ret < 0) {
-		pr_err("%s: can't reserve GPIO: %d\n", __func__,
-						GOSSAMER_WIFI_PMENA_GPIO);
-		goto out;
-	}
-	gpio_direction_output(GOSSAMER_WIFI_PMENA_GPIO, 0);
-	gpio_export(GOSSAMER_WIFI_PMENA_GPIO, true);
-
-	ret = gpio_request(GOSSAMER_WIFI_EN_POW, "wifi_pwen");
-	if (ret < 0) {
-		pr_err("%s: can't reserve GPIO: %d\n", __func__,
-					GOSSAMER_WIFI_EN_POW);
-		goto out;
-	}
-	gpio_direction_output(GOSSAMER_WIFI_EN_POW, 0);
-
-	gpio_export(GOSSAMER_WIFI_EN_POW, true);
-	ret = gpio_request(GOSSAMER_WIFI_IRQ_GPIO, "wifi_irq");
-	if (ret < 0) {
-		printk(KERN_ERR "%s: can't reserve GPIO: %d\n", __func__,
-						GOSSAMER_WIFI_IRQ_GPIO);
-		goto out;
-	}
-	gpio_direction_input(GOSSAMER_WIFI_IRQ_GPIO);
-
-	dev = mmc[2].dev;
-	if (!dev) {
-		pr_err("wl12xx mmc device initialization failed\n");
-		goto out;
-	}
-
-	pdata = dev->platform_data;
-	if (!pdata) {
-		pr_err("Platfrom data of wl12xx device not set\n");
-		goto out;
-	}
-
-	pdata->slots[0].set_power = wl12xx_set_power;
-
-	if (wl12xx_set_platform_data(&gossamer_wlan_data))
-		pr_err("Error setting wl12xx data\n");
-out:
-	return;
-}
-#endif
 
 static struct regulator_consumer_supply encore_vmmc3_supply = {
 	.dev_name	= "omap_hsmmc.2",
@@ -920,29 +822,10 @@ static struct platform_device omap_vwlan_device = {
 	},
 };
 
-static int __init encore_wifi_init(void)
-{
-	int ret;
-
-	gpio_request(GOSSAMER_WIFI_EN_POW, "wifi_en_pow");
-	/*Gossamer didn't have this on 2.6.29 */
-	//encore_wifi_v18io_power_enable();
-	gpio_direction_output(GOSSAMER_WIFI_EN_POW, 1);
-
-	ret = wl12xx_set_platform_data(&gossamer_wlan_data);
-	if (ret)
-		pr_err("Error setting wl12xx data\n");
-
-	return ret;
-}
-device_initcall(encore_wifi_init);
-
 static void __init omap_gossamer_init(void)
 {
 	/*we need to have this enable function here to lit up the BL*/
 	dump_board_revision();
-
-	platform_device_register(&omap_vwlan_device);
 
 #if defined(CONFIG_TOUCHSCREEN_ZFORCE) || defined(CONFIG_TOUCHSCREEN_ZFORCE_MODULE)
 #ifdef CONFIG_MACH_OMAP3621_GOSSAMER_EVT1C
@@ -959,7 +842,6 @@ static void __init omap_gossamer_init(void)
 	omap_i2c_init();
 	platform_device_register(&gossamer_vmmc2_fixed_device);
 	omap_register_ion();
-	
 
 	platform_add_devices(gossamer_devices, ARRAY_SIZE(gossamer_devices));
 
@@ -1006,9 +888,6 @@ static void __init omap_gossamer_init(void)
 		pr_err("Error setting wl12xx data\n");
 	platform_device_register(&omap_vwlan_device);
 
-	/* Fix to prevent VIO leakage on wl127x */
-	wl127x_vio_leakage_fix();
-
     BUG_ON(!cpu_is_omap3630());
 }
 
@@ -1025,7 +904,7 @@ static void __init omap_gossamer_init_early(void)
 static void __init omap_gossamer_reserve(void)
 {
 	/* Must be 2M or board fails early in arch/arm/mm/mmu.c*/
-	omap_ram_console_init(GOSSAMER_RAM_CONSOLE_START,SZ_2M);
+	omap_ram_console_init(GOSSAMER_RAM_CONSOLE_START,SZ_1M);
 	omap_reserve();
 }
  
