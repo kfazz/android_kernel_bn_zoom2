@@ -165,6 +165,14 @@ static struct omap_opp_def __initdata omap36xx_opp_def_list[] = {
 	OPP_INITIALIZER("l3_main", "l3_ick", "core", true,
 				200000000, OMAP3630_VDD_CORE_OPP100_UV),
 
+	/*clock? "sgx_fck" "core_l3_ick" */
+	/* SGX OPP1 - OPP50 */
+	OPP_INITIALIZER("gpu", "sgx_fck", "core", true, 100000000, OMAP3630_VDD_CORE_OPP50_UV),
+	/* SGX OPP2 - OPP100 */
+	OPP_INITIALIZER("gpu", "sgx_fck", "core", true, 200000000, OMAP3630_VDD_CORE_OPP100_UV),
+	/* SGX OPP3 - OPPOV */
+	//OPP_INITIALIZER("gpu", "dpll_per_m7x2_ck", "core", true, 384000000, OMAP4460_VDD_CORE_OPP100_OV_UV),
+
 	/* DSP OPP1 - OPP50 */
 	OPP_INITIALIZER("iva", "dpll2_ck", "mpu_iva", true,  260000000, OMAP3630_VDD_MPU_OPP50_UV),
 	/* DSP OPP2 - OPP100 */
