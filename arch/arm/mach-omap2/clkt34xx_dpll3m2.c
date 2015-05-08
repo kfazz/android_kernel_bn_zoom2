@@ -55,26 +55,60 @@ int omap3_core_dpll_m2_set_rate(struct clk *clk, unsigned long rate)
 	u32 unlock_dll = 0;
 	u32 c;
 	unsigned long validrate, sdrcrate, _mpurate;
+	u32 cm_clksel1_pll;
 	struct omap_sdrc_params *sdrc_cs0;
 	struct omap_sdrc_params *sdrc_cs1;
 	int ret;
+	struct dpll_data *dd;
 
 	if (!clk || !rate)
 		return -EINVAL;
 
-	validrate = omap2_clksel_round_rate_div(clk, rate, &new_div);
-	if (validrate != rate)
+	if (!clk->parent || !clk->parent->dpll_data)
 		return -EINVAL;
 
+	dd = clk->parent->dpll_data;
+	cm_clksel1_pll = __raw_readl(dd->mult_div1_reg);
+
+	validrate = omap2_clksel_round_rate_div(clk, rate, &new_div);
+
+	if (validrate == rate) {
+		cm_clksel1_pll &= ~clk->clksel_mask;
+		cm_clksel1_pll |= new_div << __ffs(clk->clksel_mask);
+	} else {
+		rate = omap2_dpll_round_rate(clk->parent, rate);
+		if (rate == ~0)
+			return -EINVAL;
+
+		cm_clksel1_pll &= ~(dd->mult_mask | dd->div1_mask | clk->clksel_mask);
+		cm_clksel1_pll |= dd->last_rounded_m << __ffs(dd->mult_mask);
+		cm_clksel1_pll |= (dd->last_rounded_n - 1) << __ffs(dd->div1_mask);
+		cm_clksel1_pll |= 1 << __ffs(clk->clksel_mask);
+
+		validrate = rate;
+	}
+	//printk ("validrate %lu, rate req'd %lu\n", validrate, rate);
+	if (validrate != rate) {
+		printk ("validrate !=rate\n");
+		return -EINVAL;
+	}
+
 	sdrcrate = sdrc_ick_p->rate;
+#if 0
 	if (rate > clk->rate)
 		sdrcrate <<= ((rate / clk->rate) >> 1);
 	else
 		sdrcrate >>= ((clk->rate / rate) >> 1);
+#endif
+	sdrcrate = rate / 2;
+	//printk ("new sdrcrate: %lu\n", sdrcrate);
 
 	ret = omap2_sdrc_get_params(sdrcrate, &sdrc_cs0, &sdrc_cs1);
 	if (ret)
+	{
+		printk ("sdrc_get_params returned %d\n", ret);
 		return -EINVAL;
+	}
 
 	if (sdrcrate < MIN_SDRC_DLL_LOCK_FREQ) {
 		pr_debug("clock: will unlock SDRC DLL\n");
@@ -106,14 +140,14 @@ int omap3_core_dpll_m2_set_rate(struct clk *clk, unsigned long rate)
 
 	if (sdrc_cs1)
 		omap3_configure_core_dpll(
-				  new_div, unlock_dll, c, rate > clk->rate,
+				  cm_clksel1_pll, unlock_dll, c, rate > clk->rate,
 				  sdrc_cs0->rfr_ctrl, sdrc_cs0->actim_ctrla,
 				  sdrc_cs0->actim_ctrlb, sdrc_cs0->mr,
 				  sdrc_cs1->rfr_ctrl, sdrc_cs1->actim_ctrla,
 				  sdrc_cs1->actim_ctrlb, sdrc_cs1->mr);
 	else
 		omap3_configure_core_dpll(
-				  new_div, unlock_dll, c, rate > clk->rate,
+				  cm_clksel1_pll, unlock_dll, c, rate > clk->rate,
 				  sdrc_cs0->rfr_ctrl, sdrc_cs0->actim_ctrla,
 				  sdrc_cs0->actim_ctrlb, sdrc_cs0->mr,
 				  0, 0, 0, 0);
