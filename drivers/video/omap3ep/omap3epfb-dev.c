@@ -713,6 +713,21 @@ static int omap3epfb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/*
+ * Set new y offset in the virtual display and redraw.
+ */
+static int omap3epfb_pan_display(struct fb_var_screeninfo *var,
+			       struct fb_info *info)
+{
+	struct omap3epfb_par *par = info->par;
+
+	par->last_yoffset = info->var.yoffset;
+	//info->var = var;
+	info->var.yoffset = var->yoffset;
+	omap3epfb_update_screen_bursty(info);
+	return 0;
+}
+
 
 static inline unsigned int chan_to_field(unsigned int chan, const struct fb_bitfield *bf)
 {
@@ -1159,7 +1174,7 @@ static const struct fb_fix_screeninfo omap3epfb_fix __initdata = {
 	.id		= "omap3epfb",
 	.type 		= FB_TYPE_PACKED_PIXELS,
 	.xpanstep	= 0,
-	.ypanstep	= 0,
+	.ypanstep	= 1,
 	.ywrapstep	= 0,
 	.accel		= FB_ACCEL_NONE,
 };
@@ -1178,6 +1193,7 @@ static const struct fb_ops omap3epfb_ops __initdata = {
 	.fb_imageblit	= omap3epfb_imageblit,
 	.fb_sync	= omap3epfb_sync,
 	.fb_ioctl	= omap3epfb_ioctl,
+	.fb_pan_display = omap3epfb_pan_display,
 };
 
 
@@ -1487,7 +1503,7 @@ static int __init omap3epfb_probe(struct platform_device *pdev)
 	/* fill-in init-time configurable parameters */
 	info->fix = omap3epfb_fix;
 	info->fix.smem_start = (unsigned long)par->vmem.phys;
-	info->fix.ypanstep = par->mode.vyres;
+	//info->fix.ypanstep = par->mode.vyres;
 	info->fix.smem_len = omap3epfb_videomem_size(info);
 
 	switch (par->mode.bpp) {
@@ -1520,7 +1536,7 @@ static int __init omap3epfb_probe(struct platform_device *pdev)
 	info->var.xres = par->mode.vxres;
 	info->var.yres = par->mode.vyres;
 	info->var.xres_virtual = par->mode.vxres;
-	info->var.yres_virtual = par->mode.vyres;
+	info->var.yres_virtual = par->mode.vyres * 2;
 
 
 	retval = omap3epfb_create_screenupdate_workqueue(info);
